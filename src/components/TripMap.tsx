@@ -1,7 +1,10 @@
 import L, { LatLngBoundsExpression } from "leaflet";
-import { useEffect } from "react";
-import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
+import { useEffect, useMemo } from "react";
+import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import { hasOpenRouteServiceApiKey } from "../config/openRouteService";
+import { hasSupabaseConfig } from "../config/supabase";
+import { LiveLocation, useLiveLocation } from "../hooks/useLiveLocation";
+import { useOpenRouteServiceRoute } from "../hooks/useOpenRouteServiceRoute";
 import { Journey, Stop, StopType } from "../types";
 import { formatDisplayDate, getStopAttractions, getStopHikes, getStopLodging, sortStops } from "../utils/journey";
 
@@ -26,6 +29,51 @@ function FitRouteToBounds({ routePositions }: { routePositions: [number, number]
   }, [map, routePositions]);
 
   return null;
+}
+
+function createCurrentLocationIcon() {
+  return L.divIcon({
+    className: "current-location-marker",
+    html: "<span></span>",
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    popupAnchor: [0, -14],
+  });
+}
+
+function SharedLiveLocationMarker({ location }: { location: LiveLocation | null }) {
+  const currentLocationIcon = useMemo(() => createCurrentLocationIcon(), []);
+
+  if (!location) {
+    return null;
+  }
+
+  const position: [number, number] = [location.latitude, location.longitude];
+
+  return (
+    <>
+      <Circle
+        center={position}
+        pathOptions={{ color: "#2563eb", fillColor: "#60a5fa", fillOpacity: 0.14, opacity: 0.35, weight: 2 }}
+        radius={Math.max(location.accuracyM ?? 20, 20)}
+      />
+      <Marker icon={currentLocationIcon} position={position}>
+        <Popup>
+          <div className="map-popup">
+            <span className="map-popup__order">OwnTracks live location</span>
+            <h3>Shared Current Location</h3>
+            <p className="map-popup__meta">
+              {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
+            </p>
+            {location.accuracyM ? <p>Accuracy: about {Math.round(location.accuracyM).toLocaleString()} m</p> : null}
+            {location.batteryPercent ? <p>Phone battery: {location.batteryPercent}%</p> : null}
+            <p className="map-popup__distance">Last received: {new Date(location.updatedAt).toLocaleString()}</p>
+            <p>Device time: {new Date(location.recordedAt).toLocaleString()}</p>
+          </div>
+        </Popup>
+      </Marker>
+    </>
+  );
 }
 
 function formatStopType(type: string) {
@@ -65,10 +113,23 @@ function PopupList({ title, items }: { title: string; items?: string[] }) {
 }
 
 export function TripMap({ journey }: { journey: Journey }) {
-  const orderedStops = sortStops(journey.stops);
-  const routePositions = orderedStops.map((stop) => [stop.latitude, stop.longitude] as [number, number]);
+  const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
+  const { errorMessage, routePositions, routeSegments, status, summary } = useOpenRouteServiceRoute(orderedStops);
+  const { errorMessage: liveLocationError, location: liveLocation, status: liveLocationStatus } = useLiveLocation(
+    journey.id,
+  );
   const firstStop = orderedStops[0];
   const center: [number, number] = firstStop ? [firstStop.latitude, firstStop.longitude] : [0, 0];
+  const routeIsRoadGeometry = status === "success";
+  const routeHasRoadGeometry = status === "success" || status === "partial";
+  const liveLocationStatusLabel = {
+    disabled: "Supabase live location not configured",
+    error: "Live location connection error",
+    hidden: "Live location sharing paused",
+    live: "OwnTracks live location on map",
+    loading: "Loading OwnTracks live location...",
+    stale: "OwnTracks location is stale",
+  };
 
   return (
     <section className="map-panel" aria-labelledby="map-title">
@@ -87,6 +148,21 @@ export function TripMap({ journey }: { journey: Journey }) {
           </span>
         ))}
       </div>
+      <div className="route-status" data-status={status}>
+        <span>
+          {routeIsRoadGeometry
+            ? "Road route loaded from OpenRouteService"
+            : routeHasRoadGeometry
+              ? "Road route partially loaded from OpenRouteService"
+              : "Using straight-line fallback route"}
+        </span>
+        {status === "loading" ? <span>Calculating road route...</span> : null}
+        {summary?.distanceKm ? <span>{Math.round(summary.distanceKm).toLocaleString()} km</span> : null}
+        {summary?.durationHours ? <span>{Math.round(summary.durationHours).toLocaleString()} driving hours</span> : null}
+        {hasSupabaseConfig ? <span>{liveLocationStatusLabel[liveLocationStatus]}</span> : null}
+        {liveLocationError ? <span>{liveLocationError}</span> : null}
+        {errorMessage ? <span>{errorMessage}</span> : null}
+      </div>
       <div
         className="trip-map"
         data-ors-api-key-configured={hasOpenRouteServiceApiKey}
@@ -97,7 +173,18 @@ export function TripMap({ journey }: { journey: Journey }) {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <Polyline positions={routePositions} pathOptions={{ color: "#0f7a7a", weight: 5, opacity: 0.88 }} />
+          {routeSegments.map((segment) => (
+            <Polyline
+              key={segment.id}
+              positions={segment.positions}
+              pathOptions={{
+                color: segment.source === "ors" ? "#0f7a7a" : "#d98a28",
+                dashArray: segment.source === "ors" ? undefined : "10 10",
+                weight: segment.source === "ors" ? 5 : 4,
+                opacity: segment.source === "ors" ? 0.88 : 0.72,
+              }}
+            />
+          ))}
           {orderedStops.map((stop) => {
             const lodging = getStopLodging(journey, stop.id);
             const attractions = getStopAttractions(journey, stop.id);
@@ -115,6 +202,13 @@ export function TripMap({ journey }: { journey: Journey }) {
                       {formatDisplayDate(stop.date)} | {stop.city ?? stop.stateOrProvince} | {formatStopType(stop.type)}
                     </p>
                     <p>{stop.description}</p>
+                    <p className="map-popup__distance">
+                      Distance:{" "}
+                      {typeof stop.drivingDistanceKm === "number"
+                        ? `${stop.drivingDistanceKm.toLocaleString()} km`
+                        : "Flexible"}
+                      {stop.drivingDistanceNote ? ` (${stop.drivingDistanceNote})` : ""}
+                    </p>
                     {stop.overnight ? <p className="map-popup__overnight">Overnight: {stop.overnight}</p> : null}
                     <PopupList title="Lodging" items={lodging.map((item) => `${item.name} (${item.type})`)} />
                     <PopupList title="Attractions" items={attractions.map((attraction) => attraction.name)} />
@@ -125,6 +219,7 @@ export function TripMap({ journey }: { journey: Journey }) {
               </Marker>
             );
           })}
+          <SharedLiveLocationMarker location={liveLocation} />
           <FitRouteToBounds routePositions={routePositions} />
         </MapContainer>
       </div>

@@ -47,6 +47,13 @@ export function JourneyTimeline({ journey }: { journey: Journey }) {
                 <div className="timeline-stop__details">
                   <p>{stop.description}</p>
                   <div className="timeline-meta">
+                    <span>
+                      Distance:{" "}
+                      {typeof stop.drivingDistanceKm === "number"
+                        ? `${stop.drivingDistanceKm.toLocaleString()} km`
+                        : "Flexible"}
+                      {stop.drivingDistanceNote ? ` (${stop.drivingDistanceNote})` : ""}
+                    </span>
                     <span>Overnight: {stop.overnight ?? "Flexible"}</span>
                     <span>Lodging: {listLodgingTypes(lodging)}</span>
                     <span>{stop.optional ? "Optional" : status === "completed" ? "Completed" : "Planned"}</span>

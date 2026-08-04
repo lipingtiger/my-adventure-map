@@ -11,6 +11,7 @@ The editable current journey lives in `src/data/journeys/toronto-seattle-2026/`.
 The journey model supports title, subtitle, dates, status, description, route note, estimated distance, duration, and an ordered `stops` array.
 
 Each stop supports route order, date, location, coordinates, stop type, description, completion status, overnight location, lodging options, attractions, hikes, notes, start point, destination, and optional status.
+Each travel day can also include `drivingDistanceKm` and `drivingDistanceNote`.
 
 ## Route Editing
 
@@ -21,6 +22,8 @@ Change a date by editing the stop's `date`. If the whole journey start or end ch
 Reorder the route by changing stop `order` values. The map and timeline sort by `order`.
 
 Add a stop by copying an existing stop object, assigning a unique `id`, changing its `order`, and adding accurate coordinates.
+
+Add or update each day's driving distance with `drivingDistanceKm`. Use `drivingDistanceNote` for optional detours, local days, or approximate values.
 
 Mark a stop optional by adding `optional: true` and explaining the reason in `notes`.
 
@@ -35,6 +38,8 @@ Add hikes through `hikes`. Include distance, difficulty, estimated time, trailhe
 ## Environment Variables
 
 OpenRouteService API access is read from `import.meta.env.VITE_ORS_API_KEY` in `src/config/openRouteService.ts`.
+
+`TripMap` uses OpenRouteService to request real driving routes between each pair of ordered stops. If one segment fails, for example because ORS cannot snap a park coordinate to a drivable road and returns 404, only that segment falls back to a straight line. The rest of the route can still use road geometry.
 
 For local development, put the key in `.env.local`:
 

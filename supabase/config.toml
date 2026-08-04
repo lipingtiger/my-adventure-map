@@ -1,0 +1,4 @@
+project_id = "my-adventure-map"
+
+[functions.owntracks-location]
+verify_jwt = false

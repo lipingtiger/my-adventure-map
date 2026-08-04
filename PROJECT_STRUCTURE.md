@@ -9,7 +9,7 @@
 `src/data/journeys/toronto-seattle-2026/` is the current journey data folder:
 
 - `journey.ts`: assembles the full journey object
-- `stops.ts`: route order, map coordinates, dates, overnight city, and stop descriptions
+- `stops.ts`: route order, map coordinates, dates, driving distance, overnight city, and stop descriptions
 - `hikes.ts`: hiking trail options linked to stops by `stopId`
 - `lodging.ts`: lodging options linked to stops by `stopId`
 - `attractions.ts`: attractions linked to stops by `stopId`
@@ -35,6 +35,8 @@ Pages select a `Journey` from that index and pass it into reusable components.
 
 `TripMap` receives a `Journey` object and renders its stops, route line, marker popups, lodging, attractions, and hikes.
 
+`TripMap` asks OpenRouteService for real driving route segments using `VITE_ORS_API_KEY`. Returned GeoJSON coordinates are converted into Leaflet `[latitude, longitude]` positions. If ORS returns 404 for one segment, that segment uses a straight-line fallback while successful segments keep road geometry.
+
 `JourneyTimeline` receives a `Journey` object and renders timeline cards from the same data.
 
 ## Add A New Journey
@@ -45,6 +47,8 @@ Pages select a `Journey` from that index and pass it into reusable components.
 4. Change the `id`, `slug`, title, dates, and description in the copied `journey.ts`.
 5. Update stops, lodging, attractions, hikes, photos, videos, and journal entries.
 6. Export the new journey from `src/data/journeys/index.ts`.
+
+Daily driving distance lives on each stop as `drivingDistanceKm`. Use `drivingDistanceNote` for local days, optional detours, or uncertainty.
 
 ## Duplicate An Existing Journey
 

@@ -25,6 +25,8 @@ export interface Stop {
   type: StopType;
   description: string;
   completed: boolean;
+  drivingDistanceKm?: number;
+  drivingDistanceNote?: string;
   overnight?: string;
   notes?: string[];
   startPoint?: string;
