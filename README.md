@@ -1,13 +1,13 @@
 # my-adventure-map
 an interactive travel map and journal for my road trips
 
-## Version 0.3
+## Version 0.4
 
-Version 0.3 upgrades the route into a flexible 17-day Toronto-to-Seattle itinerary through the United States, Yellowstone National Park, Grand Teton National Park, Idaho, Oregon, and Washington. Route data lives in:
+Version 0.4 refactors the app into a scalable multi-journey architecture with React Router and split journey data. Current journey data lives in:
 
-`src/data/trips/torontoToSeattle.ts`
+`src/data/journeys/toronto-seattle-2026/`
 
-Edit an existing stop by changing its object in the `stops` array. Add a new stop by adding another object with an `id`, `order`, `name`, `date`, coordinates, `type`, `description`, and any lodging, attractions, hikes, or notes.
+Start with `PROJECT_STRUCTURE.md` for how to add, duplicate, or extend journeys.
 
 ## Development
 

@@ -1,30 +1,37 @@
-import { CalendarDays, MapPin, Milestone } from "lucide-react";
-import { journey } from "../data/journey";
+import { CalendarDays, Flag, MapPin, Milestone } from "lucide-react";
+import { Journey } from "../types";
+import { formatDateRange, getTimelineStops } from "../utils/journey";
 
-const overviewItems = [
-  {
-    icon: MapPin,
-    label: "Current Journey",
-    value: journey.currentJourney,
-  },
-  {
-    icon: CalendarDays,
-    label: "Travel Dates",
-    value: journey.travelDates,
-  },
-  {
-    icon: Milestone,
-    label: "Journey Plan",
-    value: journey.stopsLabel,
-  },
-];
+export function JourneyOverview({ journey }: { journey: Journey }) {
+  const timelineStops = getTimelineStops(journey);
+  const overviewItems = [
+    {
+      icon: MapPin,
+      label: "Current Journey",
+      value: journey.title,
+    },
+    {
+      icon: CalendarDays,
+      label: "Travel Dates",
+      value: formatDateRange(journey.startDate, journey.endDate),
+    },
+    {
+      icon: Flag,
+      label: "Journey Status",
+      value: journey.status,
+    },
+    {
+      icon: Milestone,
+      label: "Overview",
+      value: `${journey.totalDistanceLabel} | ${timelineStops.length} travel days`,
+    },
+  ];
 
-export function JourneyOverview() {
   return (
     <section className="overview" aria-labelledby="overview-title">
       <div className="section-heading">
         <span className="section-kicker">Journey Overview</span>
-        <h2 id="overview-title">A westbound story in motion</h2>
+        <h2 id="overview-title">{journey.description}</h2>
       </div>
       <div className="overview__grid">
         {overviewItems.map((item) => {

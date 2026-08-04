@@ -2,11 +2,11 @@
 
 ## Current Version
 
-Version 0.3: upgraded Toronto-to-Seattle route with national parks, hikes, lodging options, richer map popups, and collapsible itinerary cards.
+Version 0.4: scalable multi-journey architecture with reusable journey interfaces, route pages, journey cards, split journey data, and React Router.
 
 ## Data Model Summary
 
-The editable trip lives in `src/data/trips/torontoToSeattle.ts`.
+The editable current journey lives in `src/data/journeys/toronto-seattle-2026/`.
 
 The journey model supports title, subtitle, dates, status, description, route note, estimated distance, duration, and an ordered `stops` array.
 
@@ -14,7 +14,7 @@ Each stop supports route order, date, location, coordinates, stop type, descript
 
 ## Route Editing
 
-To change the route, edit only `src/data/trips/torontoToSeattle.ts`.
+To change the route, edit `src/data/journeys/toronto-seattle-2026/stops.ts`.
 
 Change a date by editing the stop's `date`. If the whole journey start or end changes, also update `startDate` or `endDate`.
 
@@ -24,11 +24,25 @@ Add a stop by copying an existing stop object, assigning a unique `id`, changing
 
 Mark a stop optional by adding `optional: true` and explaining the reason in `notes`.
 
-Add lodging through `lodgingOptions`. Valid lodging types are `motel`, `hostel`, `campground`, and `lodge`.
+Hide a map-only point from the timeline with `showInTimeline: false`. Toronto uses this so it appears on the map as the route start while Day 1 remains the Toronto-to-Sault Ste. Marie driving day.
+
+Add lodging in the journey folder's `lodging.ts`. Valid lodging types are `motel`, `hostel`, `campground`, and `lodge`.
 
 Add attractions through `attractions`. Coordinates are optional for side attractions.
 
 Add hikes through `hikes`. Include distance, difficulty, estimated time, trailhead, reservation status, and seasonal notes when useful.
+
+## Environment Variables
+
+OpenRouteService API access is read from `import.meta.env.VITE_ORS_API_KEY` in `src/config/openRouteService.ts`.
+
+For local development, put the key in `.env.local`:
+
+```bash
+VITE_ORS_API_KEY=your_key_here
+```
+
+Do not commit `.env.local`.
 
 ## Next Planned Features
 

@@ -1,7 +1,9 @@
 import L, { LatLngBoundsExpression } from "leaflet";
 import { useEffect } from "react";
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
-import { orderedStops, StopType, torontoToSeattleTrip, TripStop } from "../data/trips/torontoToSeattle";
+import { hasOpenRouteServiceApiKey } from "../config/openRouteService";
+import { Journey, Stop, StopType } from "../types";
+import { formatDisplayDate, getStopAttractions, getStopHikes, getStopLodging, sortStops } from "../utils/journey";
 
 const markerStyles: Record<StopType, { label: string; className: string }> = {
   start: { label: "S", className: "map-marker--start" },
@@ -13,9 +15,7 @@ const markerStyles: Record<StopType, { label: string; className: string }> = {
   destination: { label: "D", className: "map-marker--destination" },
 };
 
-const routePositions = orderedStops.map((stop) => [stop.latitude, stop.longitude] as [number, number]);
-
-function FitRouteToBounds() {
+function FitRouteToBounds({ routePositions }: { routePositions: [number, number][] }) {
   const map = useMap();
 
   useEffect(() => {
@@ -23,7 +23,7 @@ function FitRouteToBounds() {
       const bounds = L.latLngBounds(routePositions) as LatLngBoundsExpression;
       map.fitBounds(bounds, { padding: [34, 34] });
     }
-  }, [map]);
+  }, [map, routePositions]);
 
   return null;
 }
@@ -35,15 +35,7 @@ function formatStopType(type: string) {
     .join(" ");
 }
 
-function formatDate(date: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(`${date}T12:00:00`));
-}
-
-function createStopIcon(stop: TripStop) {
+function createStopIcon(stop: Stop) {
   const markerStyle = markerStyles[stop.type];
 
   return L.divIcon({
@@ -72,7 +64,9 @@ function PopupList({ title, items }: { title: string; items?: string[] }) {
   );
 }
 
-export function TripMap() {
+export function TripMap({ journey }: { journey: Journey }) {
+  const orderedStops = sortStops(journey.stops);
+  const routePositions = orderedStops.map((stop) => [stop.latitude, stop.longitude] as [number, number]);
   const firstStop = orderedStops[0];
   const center: [number, number] = firstStop ? [firstStop.latitude, firstStop.longitude] : [0, 0];
 
@@ -81,9 +75,9 @@ export function TripMap() {
       <div className="section-heading route-heading">
         <div>
           <span className="section-kicker">Interactive map</span>
-          <h2 id="map-title">{torontoToSeattleTrip.title}</h2>
+          <h2 id="map-title">{journey.title}</h2>
         </div>
-        <p className="route-note">{torontoToSeattleTrip.routeNote}</p>
+        <p className="route-note">{journey.routeNote}</p>
       </div>
       <div className="map-legend" aria-label="Map marker legend">
         {Object.entries(markerStyles).map(([type, markerStyle]) => (
@@ -93,33 +87,45 @@ export function TripMap() {
           </span>
         ))}
       </div>
-      <div className="trip-map" aria-label={`${torontoToSeattleTrip.title} interactive route map`}>
+      <div
+        className="trip-map"
+        data-ors-api-key-configured={hasOpenRouteServiceApiKey}
+        aria-label={`${journey.title} interactive route map`}
+      >
         <MapContainer center={center} zoom={5} scrollWheelZoom={false} className="trip-map__canvas">
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <Polyline positions={routePositions} pathOptions={{ color: "#0f7a7a", weight: 5, opacity: 0.88 }} />
-          {orderedStops.map((stop) => (
-            <Marker key={stop.id} icon={createStopIcon(stop)} position={[stop.latitude, stop.longitude]}>
-              <Popup>
-                <div className="map-popup">
-                  <span className="map-popup__order">Day {stop.order}</span>
-                  <h3>{stop.name}</h3>
-                  <p className="map-popup__meta">
-                    {formatDate(stop.date)} | {stop.city ?? stop.stateOrProvince} | {formatStopType(stop.type)}
-                  </p>
-                  <p>{stop.description}</p>
-                  {stop.overnight ? <p className="map-popup__overnight">Overnight: {stop.overnight}</p> : null}
-                  <PopupList title="Lodging" items={stop.lodgingOptions?.map((lodging) => `${lodging.name} (${lodging.type})`)} />
-                  <PopupList title="Attractions" items={stop.attractions?.map((attraction) => attraction.name)} />
-                  <PopupList title="Hikes" items={stop.hikes?.map((hike) => `${hike.name} - ${hike.difficulty}`)} />
-                  <PopupList title="Notes" items={stop.notes} />
-                </div>
-              </Popup>
-            </Marker>
-          ))}
-          <FitRouteToBounds />
+          {orderedStops.map((stop) => {
+            const lodging = getStopLodging(journey, stop.id);
+            const attractions = getStopAttractions(journey, stop.id);
+            const hikes = getStopHikes(journey, stop.id);
+
+            return (
+              <Marker key={stop.id} icon={createStopIcon(stop)} position={[stop.latitude, stop.longitude]}>
+                <Popup>
+                  <div className="map-popup">
+                    <span className="map-popup__order">
+                      {stop.showInTimeline === false ? "Start" : `Day ${stop.order}`}
+                    </span>
+                    <h3>{stop.name}</h3>
+                    <p className="map-popup__meta">
+                      {formatDisplayDate(stop.date)} | {stop.city ?? stop.stateOrProvince} | {formatStopType(stop.type)}
+                    </p>
+                    <p>{stop.description}</p>
+                    {stop.overnight ? <p className="map-popup__overnight">Overnight: {stop.overnight}</p> : null}
+                    <PopupList title="Lodging" items={lodging.map((item) => `${item.name} (${item.type})`)} />
+                    <PopupList title="Attractions" items={attractions.map((attraction) => attraction.name)} />
+                    <PopupList title="Hikes" items={hikes.map((hike) => `${hike.name} - ${hike.difficulty}`)} />
+                    <PopupList title="Notes" items={stop.notes} />
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
+          <FitRouteToBounds routePositions={routePositions} />
         </MapContainer>
       </div>
     </section>
