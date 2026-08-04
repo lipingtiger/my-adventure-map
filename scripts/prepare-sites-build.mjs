@@ -1,11 +1,36 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 mkdirSync("dist/.openai", { recursive: true });
 mkdirSync("dist/server", { recursive: true });
 
 copyFileSync(".openai/hosting.json", "dist/.openai/hosting.json");
 
-const indexHtml = readFileSync("dist/index.html", "utf8");
+function escapeInlineScript(value) {
+  return value.replaceAll("</script", "<\\/script");
+}
+
+function escapeInlineStyle(value) {
+  return value.replaceAll("</style", "<\\/style");
+}
+
+function inlineViteAssets(html) {
+  return html
+    .replace(/<link rel="stylesheet" crossorigin href="([^"]+)">/g, (_tag, href) => {
+      const cssPath = join("dist", href.replace(/^\//, ""));
+      const css = readFileSync(cssPath, "utf8");
+
+      return `<style>${escapeInlineStyle(css)}</style>`;
+    })
+    .replace(/<script type="module" crossorigin src="([^"]+)"><\/script>/g, (_tag, src) => {
+      const scriptPath = join("dist", src.replace(/^\//, ""));
+      const script = readFileSync(scriptPath, "utf8");
+
+      return `<script type="module">${escapeInlineScript(script)}</script>`;
+    });
+}
+
+const indexHtml = inlineViteAssets(readFileSync("dist/index.html", "utf8"));
 
 writeFileSync(
   "dist/server/index.js",
@@ -27,6 +52,7 @@ export default {
 
     return new Response(indexHtml, {
       headers: {
+        "Cache-Control": "no-store",
         "Content-Type": "text/html; charset=utf-8",
       },
     });
