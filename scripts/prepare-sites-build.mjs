@@ -26,7 +26,7 @@ function inlineViteAssets(html) {
       const scriptPath = join("dist", src.replace(/^\//, ""));
       const script = readFileSync(scriptPath, "utf8");
 
-      return `<script type="module">${escapeInlineScript(script)}</script>`;
+      return `<script>window.__MY_ADVENTURE_MAP_ENV__=__MY_ADVENTURE_MAP_RUNTIME_ENV__;</script><script type="module">${escapeInlineScript(script)}</script>`;
     });
 }
 
@@ -35,6 +35,14 @@ const indexHtml = inlineViteAssets(readFileSync("dist/index.html", "utf8"));
 writeFileSync(
   "dist/server/index.js",
   `const indexHtml = ${JSON.stringify(indexHtml)};
+
+function serializeRuntimeEnv(env) {
+  return JSON.stringify({
+    VITE_ORS_API_KEY: env.VITE_ORS_API_KEY ?? "",
+    VITE_SUPABASE_ANON_KEY: env.VITE_SUPABASE_ANON_KEY ?? "",
+    VITE_SUPABASE_URL: env.VITE_SUPABASE_URL ?? "",
+  }).replaceAll("<", "\\\\u003c");
+}
 
 export default {
   async fetch(request, env) {
@@ -50,7 +58,9 @@ export default {
       return response;
     }
 
-    return new Response(indexHtml, {
+    const html = indexHtml.replace("__MY_ADVENTURE_MAP_RUNTIME_ENV__", serializeRuntimeEnv(env));
+
+    return new Response(html, {
       headers: {
         "Cache-Control": "no-store",
         "Content-Type": "text/html; charset=utf-8",
