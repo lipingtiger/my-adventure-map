@@ -133,7 +133,8 @@ main {
 }
 
 .map-panel,
-.overview {
+.overview,
+.timeline {
   margin-bottom: 42px;
 }
 
@@ -160,7 +161,8 @@ main {
   letter-spacing: 0;
 }
 
-.map-placeholder {
+.map-placeholder,
+.trip-map {
   position: relative;
   min-height: 430px;
   overflow: hidden;
@@ -171,6 +173,78 @@ main {
     radial-gradient(circle at 78% 16%, rgba(119, 183, 201, 0.34), transparent 22%),
     linear-gradient(135deg, #fffaf1 0%, #dcebe1 48%, #b8d6ce 100%);
   box-shadow: var(--shadow);
+}
+
+.route-heading {
+  align-items: center;
+}
+
+.route-note {
+  max-width: 340px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.trip-map {
+  min-height: 520px;
+  background: #dcebe1;
+}
+
+.trip-map__canvas {
+  width: 100%;
+  height: 520px;
+  min-height: 520px;
+  border-radius: 8px;
+  z-index: 0;
+}
+
+.leaflet-container {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #fffaf1;
+  color: var(--ink);
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  box-shadow: 0 16px 42px rgba(29, 42, 38, 0.24);
+}
+
+.map-popup {
+  min-width: 220px;
+}
+
+.map-popup__order {
+  color: var(--teal);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.map-popup h3 {
+  margin: 6px 0 6px;
+  font-size: 1.08rem;
+  line-height: 1.15;
+}
+
+.map-popup p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.map-popup__meta {
+  margin-bottom: 8px !important;
+  color: var(--forest) !important;
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .map-placeholder__grid {
@@ -328,6 +402,101 @@ main {
   line-height: 1.25;
 }
 
+.timeline__list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 1fr);
+  gap: 14px;
+  margin: 0;
+  padding: 0 0 12px;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-color: var(--teal) rgba(15, 122, 122, 0.12);
+}
+
+.timeline-stop {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  min-height: 210px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 16px 42px rgba(29, 42, 38, 0.08);
+}
+
+.timeline-stop::before {
+  content: "";
+  position: absolute;
+  top: 38px;
+  left: 38px;
+  width: calc(100% - 38px);
+  height: 3px;
+  background: linear-gradient(90deg, rgba(15, 122, 122, 0.36), rgba(217, 138, 40, 0.22));
+}
+
+.timeline-stop__marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 2px solid #fffaf1;
+  border-radius: 999px;
+  background: var(--teal);
+  color: #fffaf1;
+  box-shadow: 0 12px 28px rgba(23, 32, 29, 0.18);
+}
+
+.timeline-stop[data-status="planned"] .timeline-stop__marker {
+  background: #dcebe1;
+  color: var(--forest);
+}
+
+.timeline-stop[data-status="completed"] {
+  border-color: rgba(15, 122, 122, 0.38);
+}
+
+.timeline-stop__content {
+  min-width: 0;
+  padding-left: 14px;
+}
+
+.timeline-stop time {
+  color: var(--coral);
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.timeline-stop h3 {
+  margin: 8px 0 8px;
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+
+.timeline-stop p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.timeline-stop span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(15, 122, 122, 0.12);
+  color: var(--forest);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 @media (max-width: 760px) {
   .hero {
     min-height: 660px;
@@ -352,7 +521,13 @@ main {
     display: block;
   }
 
-  .map-placeholder {
+  .map-placeholder,
+  .trip-map {
+    min-height: 500px;
+  }
+
+  .trip-map__canvas {
+    height: 500px;
     min-height: 500px;
   }
 
@@ -377,6 +552,28 @@ main {
 
   .overview__grid {
     grid-template-columns: 1fr;
+  }
+
+  .route-note {
+    max-width: none;
+    margin-top: 10px;
+  }
+
+  .timeline__list {
+    grid-auto-flow: row;
+    grid-auto-columns: initial;
+    overflow: visible;
+  }
+
+  .timeline-stop {
+    min-height: 0;
+  }
+
+  .timeline-stop::before {
+    top: 38px;
+    left: 38px;
+    width: 3px;
+    height: calc(100% - 38px);
   }
 }
 

@@ -1,14 +1,16 @@
 import { HeroBanner } from "../components/HeroBanner";
-import { InteractiveMapPlaceholder } from "../components/InteractiveMapPlaceholder";
+import { JourneyTimeline } from "../components/JourneyTimeline";
 import { JourneyOverview } from "../components/JourneyOverview";
+import { TripMap } from "../components/TripMap";
 
 export function HomePage() {
   return (
     <main>
       <HeroBanner />
       <div className="page-shell">
-        <InteractiveMapPlaceholder />
+        <TripMap />
         <JourneyOverview />
+        <JourneyTimeline />
       </div>
     </main>
   );
