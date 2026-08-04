@@ -59,12 +59,72 @@ function getLocationStatus(row: LiveLocationRow): LiveLocationStatus {
   return ageMs > staleAfterMs ? "stale" : "live";
 }
 
+function canUseLiveLocationProxy() {
+  return typeof window !== "undefined" && window.location.hostname.endsWith(".chatgpt.site");
+}
+
+async function fetchLiveLocationFromProxy(journeyId: string) {
+  const response = await fetch(`/api/live-location?journey_id=${encodeURIComponent(journeyId)}`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  const data = (await response.json()) as { location: LiveLocationRow | null };
+
+  return data.location;
+}
+
 export function useLiveLocation(journeyId: string) {
   const [location, setLocation] = useState<LiveLocation | null>(null);
   const [status, setStatus] = useState<LiveLocationStatus>(hasSupabaseConfig ? "loading" : "disabled");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (canUseLiveLocationProxy()) {
+      let isMounted = true;
+      let intervalId: number | undefined;
+
+      async function loadLiveLocation() {
+        setStatus("loading");
+        setErrorMessage(null);
+
+        try {
+          const row = await fetchLiveLocationFromProxy(journeyId);
+
+          if (!isMounted) {
+            return;
+          }
+
+          if (!row) {
+            setStatus("hidden");
+            setLocation(null);
+            return;
+          }
+
+          setLocation(toLiveLocation(row));
+          setStatus(getLocationStatus(row));
+        } catch (error) {
+          if (!isMounted) {
+            return;
+          }
+
+          setStatus("error");
+          setErrorMessage(error instanceof Error ? error.message : "Unable to load live location");
+        }
+      }
+
+      void loadLiveLocation();
+      intervalId = window.setInterval(() => void loadLiveLocation(), 20_000);
+
+      return () => {
+        isMounted = false;
+        window.clearInterval(intervalId);
+      };
+    }
+
     if (!supabase) {
       setStatus("disabled");
       return undefined;

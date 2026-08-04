@@ -44,8 +44,54 @@ function serializeRuntimeEnv(env) {
   }).replaceAll("<", "\\\\u003c");
 }
 
+async function fetchLiveLocation(request, env) {
+  const url = new URL(request.url);
+  const journeyId = url.searchParams.get("journey_id") ?? "toronto-seattle-2026";
+
+  if (!env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) {
+    return Response.json({ error: "Supabase environment variables are not configured" }, { status: 500 });
+  }
+
+  const params = new URLSearchParams({
+    journey_id: "eq." + journeyId,
+    limit: "1",
+    order: "updated_at.desc",
+    select:
+      "accuracy_m,altitude_m,battery_percent,heading_degrees,journey_id,latitude,longitude,recorded_at,sharing_enabled,source,speed_mps,tracker_id,updated_at",
+  });
+  const supabaseUrl = env.VITE_SUPABASE_URL.replace(/\\/$/, "");
+  const response = await fetch(supabaseUrl + "/rest/v1/live_locations?" + params.toString(), {
+    headers: {
+      apikey: env.VITE_SUPABASE_ANON_KEY,
+      Authorization: "Bearer " + env.VITE_SUPABASE_ANON_KEY,
+    },
+  });
+
+  if (!response.ok) {
+    return Response.json({ error: await response.text() }, { status: response.status });
+  }
+
+  const rows = await response.json();
+  const row = Array.isArray(rows) ? rows[0] ?? null : null;
+
+  return Response.json(
+    { location: row?.sharing_enabled ? row : null },
+    {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+
+    if (url.pathname === "/api/live-location") {
+      return fetchLiveLocation(request, env);
+    }
+
     const response = await env.ASSETS.fetch(request);
 
     if (response.status !== 404 || request.method !== "GET") {
