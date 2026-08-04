@@ -1,13 +1,17 @@
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 mkdirSync("dist/.openai", { recursive: true });
 mkdirSync("dist/server", { recursive: true });
 
 copyFileSync(".openai/hosting.json", "dist/.openai/hosting.json");
 
+const indexHtml = readFileSync("dist/index.html", "utf8");
+
 writeFileSync(
   "dist/server/index.js",
-  `export default {
+  `const indexHtml = ${JSON.stringify(indexHtml)};
+
+export default {
   async fetch(request, env) {
     const response = await env.ASSETS.fetch(request);
 
@@ -21,10 +25,11 @@ writeFileSync(
       return response;
     }
 
-    const url = new URL(request.url);
-    url.pathname = "/index.html";
-
-    return env.ASSETS.fetch(new Request(url, request));
+    return new Response(indexHtml, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+      },
+    });
   },
 };
 `,
