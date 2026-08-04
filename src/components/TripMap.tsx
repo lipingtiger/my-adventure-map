@@ -41,6 +41,23 @@ function createCurrentLocationIcon() {
   });
 }
 
+function formatLocalDateTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+    timeZoneName: "short",
+  }).format(new Date(value));
+}
+
+function formatUtcDateTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(new Date(value));
+}
+
 function SharedLiveLocationMarker({ location }: { location: LiveLocation | null }) {
   const currentLocationIcon = useMemo(() => createCurrentLocationIcon(), []);
 
@@ -67,8 +84,10 @@ function SharedLiveLocationMarker({ location }: { location: LiveLocation | null 
             </p>
             {location.accuracyM ? <p>Accuracy: about {Math.round(location.accuracyM).toLocaleString()} m</p> : null}
             {location.batteryPercent ? <p>Phone battery: {location.batteryPercent}%</p> : null}
-            <p className="map-popup__distance">Last received: {new Date(location.updatedAt).toLocaleString()}</p>
-            <p>Device time: {new Date(location.recordedAt).toLocaleString()}</p>
+            <p className="map-popup__distance">Last received (local): {formatLocalDateTime(location.updatedAt)}</p>
+            <p>Last received (UTC): {formatUtcDateTime(location.updatedAt)}</p>
+            <p>Device time (local): {formatLocalDateTime(location.recordedAt)}</p>
+            <p>Device time (UTC): {formatUtcDateTime(location.recordedAt)}</p>
           </div>
         </Popup>
       </Marker>
