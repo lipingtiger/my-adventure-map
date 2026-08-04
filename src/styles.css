@@ -188,6 +188,36 @@ main {
   line-height: 1.45;
 }
 
+.map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -4px 0 16px;
+}
+
+.map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 250, 241, 0.82);
+  color: var(--forest);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.map-legend__dot {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 2px rgba(255, 250, 241, 0.8);
+}
+
 .trip-map {
   min-height: 520px;
   background: #dcebe1;
@@ -218,7 +248,8 @@ main {
 }
 
 .map-popup {
-  min-width: 220px;
+  min-width: 240px;
+  max-width: 320px;
 }
 
 .map-popup__order {
@@ -240,11 +271,90 @@ main {
   line-height: 1.45;
 }
 
+.map-popup__overnight {
+  margin-top: 8px !important;
+  color: var(--forest) !important;
+  font-weight: 800;
+}
+
+.map-popup__section {
+  margin-top: 10px;
+}
+
+.map-popup__section h4 {
+  margin: 0 0 5px;
+  color: var(--ink);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.map-popup__section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.map-popup__section li {
+  margin-bottom: 3px;
+}
+
 .map-popup__meta {
   margin-bottom: 8px !important;
   color: var(--forest) !important;
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.map-marker {
+  display: grid;
+  width: 34px !important;
+  height: 34px !important;
+  place-items: center;
+  border: 3px solid #fffaf1;
+  border-radius: 999px;
+  color: #fffaf1;
+  box-shadow: 0 10px 24px rgba(23, 32, 29, 0.3);
+}
+
+.map-marker span {
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.map-marker--start,
+.map-legend__dot.map-marker--start {
+  background: var(--coral);
+}
+
+.map-marker--city,
+.map-legend__dot.map-marker--city {
+  background: var(--sky);
+}
+
+.map-marker--scenic,
+.map-legend__dot.map-marker--scenic {
+  background: var(--amber);
+}
+
+.map-marker--park,
+.map-legend__dot.map-marker--park {
+  background: var(--forest);
+}
+
+.map-marker--hiking,
+.map-legend__dot.map-marker--hiking {
+  background: #6a7d3a;
+}
+
+.map-marker--overnight,
+.map-legend__dot.map-marker--overnight {
+  background: var(--teal);
+}
+
+.map-marker--destination,
+.map-legend__dot.map-marker--destination {
+  background: #26324f;
 }
 
 .map-placeholder__grid {
@@ -404,21 +514,18 @@ main {
 
 .timeline__list {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(260px, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   margin: 0;
-  padding: 0 0 12px;
-  overflow-x: auto;
+  padding: 0;
   list-style: none;
-  scrollbar-color: var(--teal) rgba(15, 122, 122, 0.12);
 }
 
 .timeline-stop {
   position: relative;
   display: grid;
   grid-template-columns: 42px 1fr;
-  min-height: 210px;
+  min-height: 0;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -464,17 +571,43 @@ main {
   padding-left: 14px;
 }
 
-.timeline-stop time {
+.timeline-stop__content summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.timeline-stop__content summary::-webkit-details-marker {
+  display: none;
+}
+
+.timeline-stop__date {
+  display: block;
   color: var(--coral);
   font-size: 0.8rem;
   font-weight: 900;
   text-transform: uppercase;
 }
 
+.timeline-stop__date time {
+  font: inherit;
+}
+
 .timeline-stop h3 {
   margin: 8px 0 8px;
   font-size: 1.15rem;
   line-height: 1.2;
+}
+
+.timeline-stop__route {
+  display: block;
+  color: var(--forest);
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.timeline-stop__details {
+  margin-top: 14px;
 }
 
 .timeline-stop p {
@@ -484,7 +617,14 @@ main {
   line-height: 1.45;
 }
 
-.timeline-stop span {
+.timeline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.timeline-meta span {
   display: inline-flex;
   min-height: 28px;
   align-items: center;
@@ -495,6 +635,28 @@ main {
   font-size: 0.74rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.timeline-detail-block {
+  margin-top: 12px;
+}
+
+.timeline-detail-block h4 {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+
+.timeline-detail-block ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.timeline-detail-block li {
+  margin-bottom: 8px;
+  line-height: 1.45;
 }
 
 @media (max-width: 760px) {
@@ -560,9 +722,7 @@ main {
   }
 
   .timeline__list {
-    grid-auto-flow: row;
-    grid-auto-columns: initial;
-    overflow: visible;
+    grid-template-columns: 1fr;
   }
 
   .timeline-stop {

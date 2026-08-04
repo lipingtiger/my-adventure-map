@@ -1,7 +1,10 @@
 import { torontoToSeattleTrip } from "./trips/torontoToSeattle";
 
-const startStop = torontoToSeattleTrip.stops[0];
-const endStop = torontoToSeattleTrip.stops[torontoToSeattleTrip.stops.length - 1];
+const orderedStops = [...torontoToSeattleTrip.stops].sort(
+  (firstStop, secondStop) => firstStop.order - secondStop.order,
+);
+const startStop = orderedStops[0];
+const endStop = orderedStops[orderedStops.length - 1];
 
 function formatDate(date: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -14,9 +17,9 @@ function formatDate(date: string) {
 export const journey = {
   title: "My Adventure Map",
   subtitle: "Every road tells a story.",
-  currentJourney: `${startStop.name} \u2192 ${endStop.name}`,
+  currentJourney: `${startStop.startPoint ?? startStop.name} \u2192 ${endStop.city ?? endStop.name}`,
   travelDates: `${formatDate(torontoToSeattleTrip.startDate)} - ${formatDate(torontoToSeattleTrip.endDate)}`,
   distanceLabel: torontoToSeattleTrip.estimatedDistanceLabel,
-  stopsLabel: `${torontoToSeattleTrip.stops.length} planned stops`,
+  stopsLabel: `${torontoToSeattleTrip.stops.length} flexible days`,
   storyLabel: torontoToSeattleTrip.durationLabel,
 };
