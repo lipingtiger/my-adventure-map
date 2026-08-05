@@ -43,18 +43,26 @@ function createCurrentLocationIcon() {
 
 function formatLocalDateTime(value: string) {
   return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "medium",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    second: "2-digit",
     timeZoneName: "short",
+    year: "numeric",
   }).format(new Date(value));
 }
 
 function formatUtcDateTime(value: string) {
   return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "medium",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    second: "2-digit",
     timeZone: "UTC",
     timeZoneName: "short",
+    year: "numeric",
   }).format(new Date(value));
 }
 
