@@ -138,7 +138,9 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: error.message }, 500);
   }
 
-  const { error: historyError } = await supabase.from("live_location_history").insert(locationRow);
+  const { error: historyError } = await supabase
+    .from("live_location_history")
+    .upsert(locationRow, { ignoreDuplicates: true, onConflict: "journey_id,tracker_id,recorded_at" });
 
   if (historyError) {
     return jsonResponse({ error: historyError.message }, 500);
