@@ -44,6 +44,10 @@ function toFallbackSegment(startStop: Stop, endStop: Stop): [number, number][] {
   ];
 }
 
+function isSamePosition(startStop: Stop, endStop: Stop) {
+  return startStop.latitude === endStop.latitude && startStop.longitude === endStop.longitude;
+}
+
 function getFallbackSegments(stops: Stop[]): RouteSegment[] {
   return stops.slice(0, -1).map((stop, index) => ({
     id: `${stop.id}-${stops[index + 1].id}`,
@@ -130,6 +134,15 @@ export function useOpenRouteServiceRoute(stops: Stop[]) {
         const startStop = stops[index];
         const endStop = stops[index + 1];
         const segmentId = `${startStop.id}-${endStop.id}`;
+
+        if (isSamePosition(startStop, endStop)) {
+          nextSegments.push({
+            id: segmentId,
+            positions: toFallbackSegment(startStop, endStop),
+            source: "fallback",
+          });
+          continue;
+        }
 
         try {
           const segment = await fetchRouteSegment(startStop, endStop, abortController.signal);
