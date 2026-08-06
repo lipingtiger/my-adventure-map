@@ -8,7 +8,9 @@ This project supports OwnTracks -> Supabase Edge Function -> website live locati
 2. OwnTracks sends location updates to the Supabase Edge Function.
 3. The Edge Function validates your private token or HTTP Basic credentials.
 4. The Edge Function writes the latest location to `public.live_locations`.
-5. The React website reads `live_locations` with the public Supabase anon key and shows the shared marker on the trip map.
+5. The Edge Function also appends each update to `public.live_location_history`.
+6. The React website reads `live_locations` for the blue current-location marker.
+7. When the history button is enabled, the website reads `live_location_history` and draws the green traveled path.
 
 ## Supabase Setup
 
@@ -16,6 +18,7 @@ Create a Supabase project, then run the SQL migration in:
 
 ```text
 supabase/migrations/20260804000000_create_live_locations.sql
+supabase/migrations/20260806000000_create_live_location_history.sql
 ```
 
 Deploy the Edge Function:
@@ -69,6 +72,8 @@ If using HTTP Basic authentication, set the OwnTracks username and password to m
 
 ## Privacy Notes
 
-The migration allows public read access only for rows where `sharing_enabled = true`. To pause sharing, set the row's `sharing_enabled` value to `false` in Supabase.
+The migrations allow public read access only for rows where `sharing_enabled = true`. To pause sharing, set the row's `sharing_enabled` value to `false` in Supabase.
+
+Location history starts after `live_location_history` has been created and the updated Edge Function has been deployed. Older points are not recoverable from `live_locations`, because that table stores only the latest row for each tracker.
 
 For a private family-only version, add authentication or a private share token before sharing the live page widely.

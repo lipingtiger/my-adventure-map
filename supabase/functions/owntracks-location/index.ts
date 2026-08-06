@@ -117,27 +117,31 @@ Deno.serve(async (req) => {
   }
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, serviceRoleKey);
-  const { error } = await supabase.from("live_locations").upsert(
-    {
-      accuracy_m: payload.acc ?? null,
-      altitude_m: payload.alt ?? null,
-      battery_percent: payload.batt ?? null,
-      heading_degrees: payload.cog ?? null,
-      journey_id: journeyId,
-      latitude: payload.lat,
-      longitude: payload.lon,
-      raw_payload: payload,
-      recorded_at: recordedAt,
-      sharing_enabled: true,
-      source: "owntracks",
-      speed_mps: payload.vel ?? null,
-      tracker_id: trackerId,
-    },
-    { onConflict: "journey_id,tracker_id" },
-  );
+  const locationRow = {
+    accuracy_m: payload.acc ?? null,
+    altitude_m: payload.alt ?? null,
+    battery_percent: payload.batt ?? null,
+    heading_degrees: payload.cog ?? null,
+    journey_id: journeyId,
+    latitude: payload.lat,
+    longitude: payload.lon,
+    raw_payload: payload,
+    recorded_at: recordedAt,
+    sharing_enabled: true,
+    source: "owntracks",
+    speed_mps: payload.vel ?? null,
+    tracker_id: trackerId,
+  };
+  const { error } = await supabase.from("live_locations").upsert(locationRow, { onConflict: "journey_id,tracker_id" });
 
   if (error) {
     return jsonResponse({ error: error.message }, 500);
+  }
+
+  const { error: historyError } = await supabase.from("live_location_history").insert(locationRow);
+
+  if (historyError) {
+    return jsonResponse({ error: historyError.message }, 500);
   }
 
   return jsonResponse({ journeyId, ok: true, recordedAt, trackerId });

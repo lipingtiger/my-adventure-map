@@ -1,9 +1,10 @@
 import L, { LatLngBoundsExpression } from "leaflet";
-import { useEffect, useMemo } from "react";
-import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
+import { useEffect, useMemo, useState } from "react";
+import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
+import { History } from "lucide-react";
 import { hasOpenRouteServiceApiKey } from "../config/openRouteService";
 import { hasSupabaseConfig } from "../config/supabase";
-import { LiveLocation, useLiveLocation } from "../hooks/useLiveLocation";
+import { LiveLocation, useLiveLocation, useLiveLocationHistory } from "../hooks/useLiveLocation";
 import { useOpenRouteServiceRoute } from "../hooks/useOpenRouteServiceRoute";
 import { Journey, Stop, StopType } from "../types";
 import { formatDisplayDate, getStopAttractions, getStopHikes, getStopLodging, sortStops } from "../utils/journey";
@@ -18,15 +19,15 @@ const markerStyles: Record<StopType, { label: string; className: string }> = {
   destination: { label: "D", className: "map-marker--destination" },
 };
 
-function FitRouteToBounds({ routePositions }: { routePositions: [number, number][] }) {
+function FitRouteToBounds({ mapPositions }: { mapPositions: [number, number][] }) {
   const map = useMap();
 
   useEffect(() => {
-    if (routePositions.length > 0) {
-      const bounds = L.latLngBounds(routePositions) as LatLngBoundsExpression;
+    if (mapPositions.length > 0) {
+      const bounds = L.latLngBounds(mapPositions) as LatLngBoundsExpression;
       map.fitBounds(bounds, { padding: [34, 34] });
     }
-  }, [map, routePositions]);
+  }, [map, mapPositions]);
 
   return null;
 }
@@ -140,13 +141,36 @@ function PopupList({ title, items }: { title: string; items?: string[] }) {
 }
 
 export function TripMap({ journey }: { journey: Journey }) {
+  const [showLiveHistory, setShowLiveHistory] = useState(false);
   const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
   const { errorMessage, routePositions, routeSegments, status, summary } = useOpenRouteServiceRoute(orderedStops);
   const { errorMessage: liveLocationError, location: liveLocation, status: liveLocationStatus } = useLiveLocation(
     journey.id,
   );
+  const {
+    errorMessage: liveHistoryError,
+    history: liveLocationHistory,
+    status: liveHistoryStatus,
+  } = useLiveLocationHistory(journey.id, showLiveHistory);
   const firstStop = orderedStops[0];
   const center: [number, number] = firstStop ? [firstStop.latitude, firstStop.longitude] : [0, 0];
+  const liveHistoryPositions = useMemo(
+    () => liveLocationHistory.map((point) => [point.latitude, point.longitude] as [number, number]),
+    [liveLocationHistory],
+  );
+  const mapPositions = useMemo(() => {
+    const positions = [...routePositions];
+
+    if (liveLocation) {
+      positions.push([liveLocation.latitude, liveLocation.longitude]);
+    }
+
+    if (showLiveHistory) {
+      positions.push(...liveHistoryPositions);
+    }
+
+    return positions;
+  }, [liveHistoryPositions, liveLocation, routePositions, showLiveHistory]);
   const routeIsRoadGeometry = status === "success";
   const routeHasRoadGeometry = status === "success" || status === "partial";
   const liveLocationStatusLabel = {
@@ -156,6 +180,17 @@ export function TripMap({ journey }: { journey: Journey }) {
     live: "OwnTracks live location on map",
     loading: "Loading OwnTracks live location...",
     stale: "OwnTracks location is stale",
+  };
+  const liveHistoryStatusLabel = {
+    disabled: "Location history is not configured",
+    error: "Location history connection error",
+    hidden: "No shared history points yet",
+    idle: "Location history hidden",
+    live: `${liveLocationHistory.length.toLocaleString()} history point${
+      liveLocationHistory.length === 1 ? "" : "s"
+    }`,
+    loading: "Loading location history...",
+    stale: "Location history is stale",
   };
 
   return (
@@ -187,9 +222,24 @@ export function TripMap({ journey }: { journey: Journey }) {
         {summary?.distanceKm ? <span>{Math.round(summary.distanceKm).toLocaleString()} km</span> : null}
         {summary?.durationHours ? <span>{Math.round(summary.durationHours).toLocaleString()} driving hours</span> : null}
         {hasSupabaseConfig ? <span>{liveLocationStatusLabel[liveLocationStatus]}</span> : null}
+        {showLiveHistory ? <span>{liveHistoryStatusLabel[liveHistoryStatus]}</span> : null}
         {liveLocationError ? <span>{liveLocationError}</span> : null}
+        {liveHistoryError ? <span>{liveHistoryError}</span> : null}
         {errorMessage ? <span>{errorMessage}</span> : null}
       </div>
+      {hasSupabaseConfig ? (
+        <div className="live-map-tools" aria-label="Live location map tools">
+          <button
+            aria-pressed={showLiveHistory}
+            className="live-history-toggle"
+            onClick={() => setShowLiveHistory((isVisible) => !isVisible)}
+            type="button"
+          >
+            <History aria-hidden="true" size={16} strokeWidth={2.8} />
+            <span>{showLiveHistory ? "Hide history path" : "Show history path"}</span>
+          </button>
+        </div>
+      ) : null}
       <div
         className="trip-map"
         data-ors-api-key-configured={hasOpenRouteServiceApiKey}
@@ -212,6 +262,28 @@ export function TripMap({ journey }: { journey: Journey }) {
               }}
             />
           ))}
+          {showLiveHistory && liveHistoryPositions.length > 1 ? (
+            <Polyline
+              positions={liveHistoryPositions}
+              pathOptions={{ color: "#2f8f46", opacity: 0.9, weight: 5 }}
+            />
+          ) : null}
+          {showLiveHistory
+            ? liveLocationHistory.map((point) => (
+                <CircleMarker
+                  key={point.id}
+                  center={[point.latitude, point.longitude]}
+                  pathOptions={{
+                    color: "#1f7a3a",
+                    fillColor: "#54c76b",
+                    fillOpacity: 0.82,
+                    opacity: 0.92,
+                    weight: 2,
+                  }}
+                  radius={4}
+                />
+              ))
+            : null}
           {orderedStops.map((stop) => {
             const lodging = getStopLodging(journey, stop.id);
             const attractions = getStopAttractions(journey, stop.id);
@@ -247,7 +319,7 @@ export function TripMap({ journey }: { journey: Journey }) {
             );
           })}
           <SharedLiveLocationMarker location={liveLocation} />
-          <FitRouteToBounds routePositions={routePositions} />
+          <FitRouteToBounds mapPositions={mapPositions} />
         </MapContainer>
       </div>
     </section>

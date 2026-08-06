@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { hasSupabaseConfig, supabase } from "../config/supabase";
 
 export type LiveLocationStatus = "disabled" | "loading" | "live" | "stale" | "hidden" | "error";
+export type LiveLocationHistoryStatus = "idle" | LiveLocationStatus;
 
 export type LiveLocation = {
   accuracyM: number | null;
@@ -18,6 +19,22 @@ export type LiveLocation = {
   updatedAt: string;
 };
 
+export type LiveLocationHistoryPoint = {
+  accuracyM: number | null;
+  altitudeM: number | null;
+  batteryPercent: number | null;
+  createdAt: string;
+  headingDegrees: number | null;
+  id: string;
+  journeyId: string;
+  latitude: number;
+  longitude: number;
+  recordedAt: string;
+  source: string;
+  speedMps: number | null;
+  trackerId: string;
+};
+
 type LiveLocationRow = {
   accuracy_m: number | null;
   altitude_m: number | null;
@@ -32,6 +49,23 @@ type LiveLocationRow = {
   speed_mps: number | null;
   tracker_id: string;
   updated_at: string;
+};
+
+type LiveLocationHistoryRow = {
+  accuracy_m: number | null;
+  altitude_m: number | null;
+  battery_percent: number | null;
+  created_at: string;
+  heading_degrees: number | null;
+  id: string;
+  journey_id: string;
+  latitude: number;
+  longitude: number;
+  recorded_at: string;
+  sharing_enabled: boolean;
+  source: string;
+  speed_mps: number | null;
+  tracker_id: string;
 };
 
 function toLiveLocation(row: LiveLocationRow): LiveLocation {
@@ -51,12 +85,34 @@ function toLiveLocation(row: LiveLocationRow): LiveLocation {
   };
 }
 
+function toLiveLocationHistoryPoint(row: LiveLocationHistoryRow): LiveLocationHistoryPoint {
+  return {
+    accuracyM: row.accuracy_m,
+    altitudeM: row.altitude_m,
+    batteryPercent: row.battery_percent,
+    createdAt: row.created_at,
+    headingDegrees: row.heading_degrees,
+    id: row.id,
+    journeyId: row.journey_id,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    recordedAt: row.recorded_at,
+    source: row.source,
+    speedMps: row.speed_mps,
+    trackerId: row.tracker_id,
+  };
+}
+
 function getLocationStatus(row: LiveLocationRow): LiveLocationStatus {
   const updatedAt = new Date(row.updated_at).getTime();
   const ageMs = Date.now() - updatedAt;
   const staleAfterMs = 30 * 60 * 1000;
 
   return ageMs > staleAfterMs ? "stale" : "live";
+}
+
+function sortHistoryRows(rows: LiveLocationHistoryRow[]) {
+  return [...rows].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
 }
 
 function canUseLiveLocationProxy() {
@@ -75,6 +131,20 @@ async function fetchLiveLocationFromProxy(journeyId: string) {
   const data = (await response.json()) as { location: LiveLocationRow | null };
 
   return data.location;
+}
+
+async function fetchLiveLocationHistoryFromProxy(journeyId: string) {
+  const response = await fetch(`/api/live-location-history?journey_id=${encodeURIComponent(journeyId)}`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  const data = (await response.json()) as { history: LiveLocationHistoryRow[] };
+
+  return data.history;
 }
 
 export function useLiveLocation(journeyId: string) {
@@ -201,4 +271,130 @@ export function useLiveLocation(journeyId: string) {
   }, [journeyId]);
 
   return { errorMessage, location, status };
+}
+
+export function useLiveLocationHistory(journeyId: string, enabled: boolean) {
+  const [history, setHistory] = useState<LiveLocationHistoryPoint[]>([]);
+  const [status, setStatus] = useState<LiveLocationHistoryStatus>(
+    enabled ? (hasSupabaseConfig ? "loading" : "disabled") : "idle",
+  );
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled) {
+      setHistory([]);
+      setStatus("idle");
+      setErrorMessage(null);
+      return undefined;
+    }
+
+    if (canUseLiveLocationProxy()) {
+      let isMounted = true;
+      let intervalId: number | undefined;
+
+      async function loadLiveLocationHistory() {
+        setStatus("loading");
+        setErrorMessage(null);
+
+        try {
+          const rows = await fetchLiveLocationHistoryFromProxy(journeyId);
+
+          if (!isMounted) {
+            return;
+          }
+
+          setHistory(sortHistoryRows(rows).map(toLiveLocationHistoryPoint));
+          setStatus(rows.length > 0 ? "live" : "hidden");
+        } catch (error) {
+          if (!isMounted) {
+            return;
+          }
+
+          setStatus("error");
+          setErrorMessage(error instanceof Error ? error.message : "Unable to load live location history");
+        }
+      }
+
+      void loadLiveLocationHistory();
+      intervalId = window.setInterval(() => void loadLiveLocationHistory(), 60_000);
+
+      return () => {
+        isMounted = false;
+        window.clearInterval(intervalId);
+      };
+    }
+
+    if (!supabase) {
+      setStatus("disabled");
+      return undefined;
+    }
+
+    const supabaseClient = supabase;
+    let isMounted = true;
+
+    async function loadLiveLocationHistory() {
+      setStatus("loading");
+      setErrorMessage(null);
+
+      const { data, error } = await supabaseClient
+        .from("live_location_history")
+        .select(
+          "accuracy_m, altitude_m, battery_percent, created_at, heading_degrees, id, journey_id, latitude, longitude, recorded_at, sharing_enabled, source, speed_mps, tracker_id",
+        )
+        .eq("journey_id", journeyId)
+        .eq("sharing_enabled", true)
+        .order("recorded_at", { ascending: true })
+        .limit(500);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        setStatus("error");
+        setErrorMessage(error.message);
+        return;
+      }
+
+      const rows = (data ?? []) as LiveLocationHistoryRow[];
+      setHistory(sortHistoryRows(rows).map(toLiveLocationHistoryPoint));
+      setStatus(rows.length > 0 ? "live" : "hidden");
+    }
+
+    void loadLiveLocationHistory();
+
+    const channel = supabaseClient
+      .channel(`live-location-history-${journeyId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          filter: `journey_id=eq.${journeyId}`,
+          schema: "public",
+          table: "live_location_history",
+        },
+        (payload) => {
+          const row = payload.new as LiveLocationHistoryRow | null;
+
+          if (!row?.sharing_enabled) {
+            return;
+          }
+
+          setHistory((currentHistory) =>
+            [...currentHistory, toLiveLocationHistoryPoint(row)].sort(
+              (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime(),
+            ),
+          );
+          setStatus("live");
+        },
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      void supabaseClient.removeChannel(channel);
+    };
+  }, [enabled, journeyId]);
+
+  return { errorMessage, history, status };
 }

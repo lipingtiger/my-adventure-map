@@ -84,12 +84,64 @@ async function fetchLiveLocation(request, env) {
   );
 }
 
+async function fetchLiveLocationHistory(request, env) {
+  const url = new URL(request.url);
+  const journeyId = url.searchParams.get("journey_id") ?? "toronto-seattle-2026";
+  const trackerId = url.searchParams.get("tracker_id");
+  const requestedLimit = Number(url.searchParams.get("limit") ?? "500");
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.round(requestedLimit), 1), 2000) : 500;
+
+  if (!env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) {
+    return Response.json({ error: "Supabase environment variables are not configured" }, { status: 500 });
+  }
+
+  const params = new URLSearchParams({
+    journey_id: "eq." + journeyId,
+    limit: String(limit),
+    order: "recorded_at.asc",
+    select:
+      "accuracy_m,altitude_m,battery_percent,created_at,heading_degrees,id,journey_id,latitude,longitude,recorded_at,sharing_enabled,source,speed_mps,tracker_id",
+    sharing_enabled: "eq.true",
+  });
+
+  if (trackerId) {
+    params.set("tracker_id", "eq." + trackerId);
+  }
+
+  const supabaseUrl = env.VITE_SUPABASE_URL.replace(/\\/$/, "");
+  const response = await fetch(supabaseUrl + "/rest/v1/live_location_history?" + params.toString(), {
+    headers: {
+      apikey: env.VITE_SUPABASE_ANON_KEY,
+      Authorization: "Bearer " + env.VITE_SUPABASE_ANON_KEY,
+    },
+  });
+
+  if (!response.ok) {
+    return Response.json({ error: await response.text() }, { status: response.status });
+  }
+
+  const rows = await response.json();
+
+  return Response.json(
+    { history: Array.isArray(rows) ? rows : [] },
+    {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/live-location") {
       return fetchLiveLocation(request, env);
+    }
+
+    if (url.pathname === "/api/live-location-history") {
+      return fetchLiveLocationHistory(request, env);
     }
 
     const response = await env.ASSETS.fetch(request);

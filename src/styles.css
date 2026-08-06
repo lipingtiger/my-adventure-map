@@ -307,6 +307,50 @@ a {
   background: rgba(119, 183, 201, 0.2);
 }
 
+.live-map-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -4px 0 16px;
+}
+
+.live-history-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 9px 13px;
+  border: 1px solid rgba(47, 143, 70, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 250, 241, 0.9);
+  color: var(--forest);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.live-history-toggle:hover {
+  border-color: rgba(47, 143, 70, 0.56);
+  transform: translateY(-1px);
+}
+
+.live-history-toggle[aria-pressed="true"] {
+  background: #2f8f46;
+  border-color: #2f8f46;
+  color: #fffaf1;
+}
+
+.live-history-toggle svg {
+  flex: 0 0 auto;
+}
+
 .trip-map {
   min-height: 520px;
   background: #dcebe1;
