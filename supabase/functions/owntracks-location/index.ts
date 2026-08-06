@@ -27,6 +27,10 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function ownTracksAcceptedResponse() {
+  return jsonResponse([]);
+}
+
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unexpected server error";
 }
@@ -91,7 +95,7 @@ function getSecretKeys() {
 
 async function handleOwnTracksRequest(req: Request) {
   if (req.method === "OPTIONS") {
-    return jsonResponse({ ok: true });
+    return ownTracksAcceptedResponse();
   }
 
   if (req.method !== "POST") {
@@ -105,7 +109,7 @@ async function handleOwnTracksRequest(req: Request) {
   const rawBody = await req.text();
 
   if (!rawBody.trim()) {
-    return jsonResponse({ ignored: true, reason: "Empty OwnTracks payload" });
+    return ownTracksAcceptedResponse();
   }
 
   let payload: OwnTracksPayload;
@@ -117,7 +121,7 @@ async function handleOwnTracksRequest(req: Request) {
   }
 
   if (payload._type !== "location") {
-    return jsonResponse({ ignored: true, reason: "Not a location payload" });
+    return ownTracksAcceptedResponse();
   }
 
   if (typeof payload.lat !== "number" || typeof payload.lon !== "number") {
@@ -164,16 +168,10 @@ async function handleOwnTracksRequest(req: Request) {
   if (historyError) {
     console.error("Unable to write live location history", historyError);
 
-    return jsonResponse({
-      historyWarning: historyError.message,
-      journeyId,
-      ok: true,
-      recordedAt,
-      trackerId,
-    });
+    return ownTracksAcceptedResponse();
   }
 
-  return jsonResponse({ journeyId, ok: true, recordedAt, trackerId });
+  return ownTracksAcceptedResponse();
 }
 
 Deno.serve(async (req) => {
