@@ -27,12 +27,23 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unexpected server error";
+}
+
 function getBasicCredentials(authHeader: string | null) {
   if (!authHeader?.startsWith("Basic ")) {
     return null;
   }
 
-  const decoded = atob(authHeader.slice("Basic ".length));
+  let decoded: string;
+
+  try {
+    decoded = atob(authHeader.slice("Basic ".length));
+  } catch {
+    return null;
+  }
+
   const separatorIndex = decoded.indexOf(":");
 
   if (separatorIndex === -1) {
@@ -70,9 +81,17 @@ function getTrackerId(payload: OwnTracksPayload, url: URL) {
   );
 }
 
-Deno.serve(async (req) => {
+function getSecretKeys() {
+  try {
+    return JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+async function handleOwnTracksRequest(req: Request) {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return jsonResponse({ ok: true });
   }
 
   if (req.method !== "POST") {
@@ -109,7 +128,7 @@ Deno.serve(async (req) => {
   const journeyId = url.searchParams.get("journey_id") ?? Deno.env.get("DEFAULT_JOURNEY_ID") ?? "toronto-seattle-2026";
   const trackerId = getTrackerId(payload, url);
   const recordedAt = payload.tst ? new Date(payload.tst * 1000).toISOString() : new Date().toISOString();
-  const secretKeys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<string, string>;
+  const secretKeys = getSecretKeys();
   const serviceRoleKey = secretKeys.default ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
   if (!serviceRoleKey) {
@@ -143,8 +162,26 @@ Deno.serve(async (req) => {
     .upsert(locationRow, { ignoreDuplicates: true, onConflict: "journey_id,tracker_id,recorded_at" });
 
   if (historyError) {
-    return jsonResponse({ error: historyError.message }, 500);
+    console.error("Unable to write live location history", historyError);
+
+    return jsonResponse({
+      historyWarning: historyError.message,
+      journeyId,
+      ok: true,
+      recordedAt,
+      trackerId,
+    });
   }
 
   return jsonResponse({ journeyId, ok: true, recordedAt, trackerId });
+}
+
+Deno.serve(async (req) => {
+  try {
+    return await handleOwnTracksRequest(req);
+  } catch (error) {
+    console.error("OwnTracks endpoint failed", error);
+
+    return jsonResponse({ error: getErrorMessage(error), ok: false }, 500);
+  }
 });
