@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
 import { AboutPage } from "./pages/AboutPage";
+import { AdminPage } from "./pages/AdminPage";
 import { CampingPage } from "./pages/CampingPage";
 import { GalleryPage } from "./pages/GalleryPage";
 import { HikingPage } from "./pages/HikingPage";
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="camping" element={<CampingPage />} />
           <Route path="hiking" element={<HikingPage />} />
           <Route path="about" element={<AboutPage />} />
+          <Route path="admin" element={<AdminPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

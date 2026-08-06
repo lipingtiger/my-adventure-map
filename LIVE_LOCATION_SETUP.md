@@ -77,3 +77,30 @@ The migrations allow public read access only for rows where `sharing_enabled = t
 Location history starts after `live_location_history` has been created and the updated Edge Function has been deployed. Older points are not recoverable from `live_locations`, because that table stores only the latest row for each tracker.
 
 For a private family-only version, add authentication or a private share token before sharing the live page widely.
+
+## Admin Tools
+
+The public website includes an `/admin` page for private maintenance tasks:
+
+- Upload journey photos to Supabase Storage.
+- Add uploaded photos to the public Gallery page.
+- Delete OwnTracks history points in a selected date-time range.
+
+The admin page uses Supabase Auth email/password login. Create an auth user in the Supabase Dashboard whose email is listed in the `ADMIN_EMAILS` Edge Function secret.
+
+Required Supabase secrets:
+
+```bash
+supabase secrets set ADMIN_EMAILS=you@example.com
+supabase secrets set MEDIA_BUCKET=journey-media
+```
+
+The current deployment uses `journey-media` as a public Storage bucket. Uploaded images are publicly readable because the site Gallery is public.
+
+To clear bad OwnTracks history points, open:
+
+```text
+https://my-adventure-map.lipingcao.chatgpt.site/admin
+```
+
+Log in, choose the start and end time, optionally enter a tracker ID such as `phone`, then delete that range.

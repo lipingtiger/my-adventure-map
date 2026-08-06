@@ -186,7 +186,7 @@ export function TripMap({ journey }: { journey: Journey }) {
     error: "Location history connection error",
     hidden: "No shared history points yet",
     idle: "Location history hidden",
-    live: `${liveLocationHistory.length.toLocaleString()} history point${
+    live: `${liveLocationHistory.length.toLocaleString()} actual route point${
       liveLocationHistory.length === 1 ? "" : "s"
     }`,
     loading: "Loading location history...",
@@ -236,7 +236,7 @@ export function TripMap({ journey }: { journey: Journey }) {
             type="button"
           >
             <History aria-hidden="true" size={16} strokeWidth={2.8} />
-            <span>{showLiveHistory ? "Hide history path" : "Show history path"}</span>
+            <span>{showLiveHistory ? "Hide actual path" : "Show actual path"}</span>
           </button>
         </div>
       ) : null}
@@ -265,7 +265,7 @@ export function TripMap({ journey }: { journey: Journey }) {
           {showLiveHistory && liveHistoryPositions.length > 1 ? (
             <Polyline
               positions={liveHistoryPositions}
-              pathOptions={{ color: "#2f8f46", opacity: 0.9, weight: 5 }}
+              pathOptions={{ color: "#d9291c", opacity: 0.92, weight: 5 }}
             />
           ) : null}
           {showLiveHistory
@@ -274,8 +274,8 @@ export function TripMap({ journey }: { journey: Journey }) {
                   key={point.id}
                   center={[point.latitude, point.longitude]}
                   pathOptions={{
-                    color: "#1f7a3a",
-                    fillColor: "#54c76b",
+                    color: "#a91f16",
+                    fillColor: "#ff5a4f",
                     fillOpacity: 0.82,
                     opacity: 0.92,
                     weight: 2,

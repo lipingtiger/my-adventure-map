@@ -7,6 +7,7 @@ const navItems = [
   { to: "/hiking", label: "Hiking" },
   { to: "/camping", label: "Camping" },
   { to: "/about", label: "About" },
+  { to: "/admin", label: "Admin" },
 ];
 
 export function AppLayout() {
