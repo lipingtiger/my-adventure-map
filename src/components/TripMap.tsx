@@ -6,7 +6,8 @@ import { hasOpenRouteServiceApiKey } from "../config/openRouteService";
 import { hasSupabaseConfig } from "../config/supabase";
 import { LiveLocation, useLiveLocation, useLiveLocationHistory } from "../hooks/useLiveLocation";
 import { useOpenRouteServiceRoute } from "../hooks/useOpenRouteServiceRoute";
-import { Journey, Stop, StopType } from "../types";
+import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
+import { Journey, Photo, Stop, StopType, Video } from "../types";
 import { formatDisplayDate, getStopAttractions, getStopHikes, getStopLodging, sortStops } from "../utils/journey";
 
 const markerStyles: Record<StopType, { label: string; className: string }> = {
@@ -17,6 +18,28 @@ const markerStyles: Record<StopType, { label: string; className: string }> = {
   hiking: { label: "H", className: "map-marker--hiking" },
   overnight: { label: "O", className: "map-marker--overnight" },
   destination: { label: "D", className: "map-marker--destination" },
+};
+
+type MapPhoto = {
+  caption?: string | null;
+  date?: string | null;
+  id: string;
+  src: string;
+  title: string;
+};
+
+type MapVideo = {
+  caption?: string;
+  date?: string;
+  id: string;
+  src: string;
+  thumbnailSrc?: string;
+  title: string;
+};
+
+type StopMedia = {
+  photos: MapPhoto[];
+  videos: MapVideo[];
 };
 
 function FitRouteToBounds({ mapPositions }: { mapPositions: [number, number][] }) {
@@ -111,12 +134,13 @@ function formatStopType(type: string) {
     .join(" ");
 }
 
-function createStopIcon(stop: Stop) {
+function createStopIcon(stop: Stop, hasMedia: boolean) {
   const markerStyle = markerStyles[stop.type];
+  const mediaBadge = hasMedia ? '<i class="map-marker__media" aria-hidden="true"></i>' : "";
 
   return L.divIcon({
-    className: `map-marker ${markerStyle.className}`,
-    html: `<span>${markerStyle.label}</span>`,
+    className: `map-marker ${markerStyle.className}${hasMedia ? " map-marker--has-media" : ""}`,
+    html: `<span>${markerStyle.label}</span>${mediaBadge}`,
     iconSize: [34, 34],
     iconAnchor: [17, 17],
     popupAnchor: [0, -18],
@@ -140,9 +164,132 @@ function PopupList({ title, items }: { title: string; items?: string[] }) {
   );
 }
 
+function getDateKey(value?: string | null) {
+  return value ? value.slice(0, 10) : null;
+}
+
+function getStopIdForMedia(stopIdByDate: Map<string, string>, stopId?: string | null, date?: string | null) {
+  return stopId ?? stopIdByDate.get(getDateKey(date) ?? "") ?? null;
+}
+
+function addMediaToStop<T>(mediaByStop: Map<string, StopMedia>, stopId: string, mediaType: "photos" | "videos", item: T) {
+  const currentMedia = mediaByStop.get(stopId) ?? { photos: [], videos: [] };
+  currentMedia[mediaType].push(item as never);
+  mediaByStop.set(stopId, currentMedia);
+}
+
+function getMapMediaByStop(journey: Journey, uploadedPhotos: UploadedPhoto[], orderedStops: Stop[]) {
+  const stopIdByDate = new Map(
+    orderedStops
+      .filter((stop) => stop.showInTimeline !== false)
+      .map((stop) => [getDateKey(stop.date) ?? stop.date, stop.id] as const),
+  );
+  const mediaByStop = new Map<string, StopMedia>();
+
+  journey.photos.forEach((photo: Photo) => {
+    if (!photo.src) {
+      return;
+    }
+
+    const stopId = getStopIdForMedia(stopIdByDate, photo.stopId, photo.date);
+
+    if (!stopId) {
+      return;
+    }
+
+    addMediaToStop(mediaByStop, stopId, "photos", {
+      caption: photo.caption,
+      date: photo.date,
+      id: photo.id,
+      src: photo.src,
+      title: photo.title,
+    });
+  });
+
+  uploadedPhotos.forEach((photo) => {
+    const stopId = getStopIdForMedia(stopIdByDate, photo.stopId, photo.takenAt);
+
+    if (!stopId) {
+      return;
+    }
+
+    addMediaToStop(mediaByStop, stopId, "photos", {
+      caption: photo.caption,
+      date: photo.takenAt,
+      id: photo.id,
+      src: photo.publicUrl,
+      title: photo.title,
+    });
+  });
+
+  journey.videos.forEach((video: Video) => {
+    if (!video.src) {
+      return;
+    }
+
+    const stopId = getStopIdForMedia(stopIdByDate, video.stopId, video.date);
+
+    if (!stopId) {
+      return;
+    }
+
+    addMediaToStop(mediaByStop, stopId, "videos", {
+      caption: video.caption,
+      date: video.date,
+      id: video.id,
+      src: video.src,
+      thumbnailSrc: video.thumbnailSrc,
+      title: video.title,
+    });
+  });
+
+  return mediaByStop;
+}
+
+function StopMediaGallery({ media }: { media?: StopMedia }) {
+  if (!media || (media.photos.length === 0 && media.videos.length === 0)) {
+    return null;
+  }
+
+  return (
+    <div className="map-popup__media">
+      {media.photos.length > 0 ? (
+        <div className="map-popup__media-section">
+          <h4>Photos</h4>
+          <div className="map-popup__photo-grid">
+            {media.photos.map((photo) => (
+              <a className="map-popup__photo" href={photo.src} key={photo.id} rel="noreferrer" target="_blank">
+                <img alt={photo.title} loading="lazy" src={photo.src} />
+                <span>{photo.title}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {media.videos.length > 0 ? (
+        <div className="map-popup__media-section">
+          <h4>Videos</h4>
+          <div className="map-popup__video-list">
+            {media.videos.map((video) => (
+              <div className="map-popup__video" key={video.id}>
+                <video controls poster={video.thumbnailSrc} preload="metadata" src={video.src} />
+                <a href={video.src} rel="noreferrer" target="_blank">
+                  {video.title}
+                </a>
+                {video.caption ? <p>{video.caption}</p> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function TripMap({ journey }: { journey: Journey }) {
   const [showLiveHistory, setShowLiveHistory] = useState(false);
   const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
+  const { errorMessage: uploadedPhotoError, photos: uploadedPhotos } = useUploadedPhotos(journey.id);
   const { errorMessage, routePositions, routeSegments, status, summary } = useOpenRouteServiceRoute(orderedStops);
   const { errorMessage: liveLocationError, location: liveLocation, status: liveLocationStatus } = useLiveLocation(
     journey.id,
@@ -157,6 +304,10 @@ export function TripMap({ journey }: { journey: Journey }) {
   const liveHistoryPositions = useMemo(
     () => liveLocationHistory.map((point) => [point.latitude, point.longitude] as [number, number]),
     [liveLocationHistory],
+  );
+  const mediaByStop = useMemo(
+    () => getMapMediaByStop(journey, uploadedPhotos, orderedStops),
+    [journey, orderedStops, uploadedPhotos],
   );
   const mapPositions = useMemo(() => {
     const positions = [...routePositions];
@@ -225,6 +376,7 @@ export function TripMap({ journey }: { journey: Journey }) {
         {showLiveHistory ? <span>{liveHistoryStatusLabel[liveHistoryStatus]}</span> : null}
         {liveLocationError ? <span>{liveLocationError}</span> : null}
         {liveHistoryError ? <span>{liveHistoryError}</span> : null}
+        {uploadedPhotoError ? <span>{uploadedPhotoError}</span> : null}
         {errorMessage ? <span>{errorMessage}</span> : null}
       </div>
       {hasSupabaseConfig ? (
@@ -288,9 +440,11 @@ export function TripMap({ journey }: { journey: Journey }) {
             const lodging = getStopLodging(journey, stop.id);
             const attractions = getStopAttractions(journey, stop.id);
             const hikes = getStopHikes(journey, stop.id);
+            const stopMedia = mediaByStop.get(stop.id);
+            const hasMedia = Boolean(stopMedia && (stopMedia.photos.length > 0 || stopMedia.videos.length > 0));
 
             return (
-              <Marker key={stop.id} icon={createStopIcon(stop)} position={[stop.latitude, stop.longitude]}>
+              <Marker key={stop.id} icon={createStopIcon(stop, hasMedia)} position={[stop.latitude, stop.longitude]}>
                 <Popup>
                   <div className="map-popup">
                     <span className="map-popup__order">
@@ -313,6 +467,7 @@ export function TripMap({ journey }: { journey: Journey }) {
                     <PopupList title="Attractions" items={attractions.map((attraction) => attraction.name)} />
                     <PopupList title="Hikes" items={hikes.map((hike) => `${hike.name} - ${hike.difficulty}`)} />
                     <PopupList title="Notes" items={stop.notes} />
+                    <StopMediaGallery media={stopMedia} />
                   </div>
                 </Popup>
               </Marker>

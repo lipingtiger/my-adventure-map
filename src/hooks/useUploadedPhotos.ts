@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { hasSupabaseConfig, supabase } from "../config/supabase";
 
+const UPLOADED_PHOTOS_PAGE_SIZE = 1000;
+const UPLOADED_PHOTOS_SELECT = "caption, created_at, id, journey_id, public_url, stop_id, taken_at, title";
+
 export type UploadedPhoto = {
   caption: string | null;
   createdAt: string;
@@ -36,6 +39,37 @@ function toUploadedPhoto(row: UploadedPhotoRow): UploadedPhoto {
   };
 }
 
+async function fetchUploadedPhotos(journeyId: string) {
+  if (!supabase) {
+    return { error: null, rows: [] as UploadedPhotoRow[] };
+  }
+
+  const rows: UploadedPhotoRow[] = [];
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("journey_photos")
+      .select(UPLOADED_PHOTOS_SELECT)
+      .eq("journey_id", journeyId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + UPLOADED_PHOTOS_PAGE_SIZE - 1);
+
+    if (error) {
+      return { error, rows };
+    }
+
+    const pageRows = (data ?? []) as UploadedPhotoRow[];
+    rows.push(...pageRows);
+
+    if (pageRows.length < UPLOADED_PHOTOS_PAGE_SIZE) {
+      return { error: null, rows };
+    }
+
+    offset += UPLOADED_PHOTOS_PAGE_SIZE;
+  }
+}
+
 export function useUploadedPhotos(journeyId: string) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(hasSupabaseConfig);
@@ -54,11 +88,7 @@ export function useUploadedPhotos(journeyId: string) {
       setIsLoading(true);
       setErrorMessage(null);
 
-      const { data, error } = await supabaseClient
-        .from("journey_photos")
-        .select("caption, created_at, id, journey_id, public_url, stop_id, taken_at, title")
-        .eq("journey_id", journeyId)
-        .order("created_at", { ascending: false });
+      const { error, rows } = await fetchUploadedPhotos(journeyId);
 
       if (!isMounted) {
         return;
@@ -70,7 +100,7 @@ export function useUploadedPhotos(journeyId: string) {
         return;
       }
 
-      setPhotos(((data ?? []) as UploadedPhotoRow[]).map(toUploadedPhoto));
+      setPhotos(rows.map(toUploadedPhoto));
       setIsLoading(false);
     }
 
