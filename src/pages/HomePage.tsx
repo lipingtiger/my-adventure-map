@@ -3,15 +3,18 @@ import { JourneyTimeline } from "../components/JourneyTimeline";
 import { JourneyOverview } from "../components/JourneyOverview";
 import { TripMap } from "../components/TripMap";
 import { currentJourney } from "../data/journeys";
+import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 
 export function HomePage() {
+  const { journey } = useJourneyStopOverrides(currentJourney);
+
   return (
     <main>
-      <HeroBanner journey={currentJourney} />
+      <HeroBanner journey={journey} />
       <div className="page-shell">
-        <TripMap journey={currentJourney} />
-        <JourneyOverview journey={currentJourney} />
-        <JourneyTimeline journey={currentJourney} />
+        <TripMap journey={journey} />
+        <JourneyOverview journey={journey} />
+        <JourneyTimeline journey={journey} />
       </div>
     </main>
   );

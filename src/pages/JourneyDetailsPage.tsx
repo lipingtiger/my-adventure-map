@@ -3,14 +3,11 @@ import { JourneyTimeline } from "../components/JourneyTimeline";
 import { JourneyOverview } from "../components/JourneyOverview";
 import { TripMap } from "../components/TripMap";
 import { getJourneyBySlug } from "../data/journeys";
+import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
+import { Journey } from "../types";
 
-export function JourneyDetailsPage() {
-  const { slug } = useParams();
-  const journey = getJourneyBySlug(slug);
-
-  if (!journey) {
-    return <Navigate to="/journeys" replace />;
-  }
+function JourneyDetailsContent({ baseJourney }: { baseJourney: Journey }) {
+  const { journey } = useJourneyStopOverrides(baseJourney);
 
   return (
     <main className="standard-page">
@@ -27,4 +24,15 @@ export function JourneyDetailsPage() {
       </div>
     </main>
   );
+}
+
+export function JourneyDetailsPage() {
+  const { slug } = useParams();
+  const baseJourney = getJourneyBySlug(slug);
+
+  if (!baseJourney) {
+    return <Navigate to="/journeys" replace />;
+  }
+
+  return <JourneyDetailsContent baseJourney={baseJourney} />;
 }

@@ -1110,8 +1110,18 @@ a {
   font-size: 1.35rem;
 }
 
+.admin-panel--wide {
+  grid-column: 1 / -1;
+}
+
 .admin-form {
   display: grid;
+  gap: 14px;
+}
+
+.admin-form__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px;
 }
 
@@ -1305,6 +1315,11 @@ a {
   .map-popup {
     min-width: 210px;
     max-width: min(280px, calc(100vw - 72px));
+  }
+
+  .admin-grid,
+  .admin-form__columns {
+    grid-template-columns: 1fr;
   }
 
   .map-placeholder__route {

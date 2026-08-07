@@ -148,6 +148,117 @@ type ClearHistoryBody = {
   trackerId?: string;
 };
 
+type UpdateStopBody = {
+  city?: string | null;
+  country?: string;
+  date?: string;
+  description?: string;
+  destination?: string | null;
+  drivingDistanceKm?: number | null;
+  drivingDistanceNote?: string | null;
+  journeyId?: string;
+  latitude?: number;
+  longitude?: number;
+  name?: string;
+  overnight?: string | null;
+  startPoint?: string | null;
+  stateOrProvince?: string;
+  stopId?: string;
+};
+
+function normalizeNullableText(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+
+  return text || null;
+}
+
+function normalizeRequiredText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T12:00:00`).getTime());
+}
+
+async function updateStop(req: Request, context: AdminContext) {
+  const body = (await req.json()) as UpdateStopBody;
+  const journeyId = normalizeRequiredText(body.journeyId) || "toronto-seattle-2026";
+  const stopId = normalizeRequiredText(body.stopId);
+  const name = normalizeRequiredText(body.name);
+  const stateOrProvince = normalizeRequiredText(body.stateOrProvince);
+  const country = normalizeRequiredText(body.country);
+  const date = normalizeRequiredText(body.date);
+  const description = normalizeRequiredText(body.description);
+  const latitude = normalizeNumber(body.latitude);
+  const longitude = normalizeNumber(body.longitude);
+  const drivingDistanceKm = normalizeNumber(body.drivingDistanceKm);
+
+  if (!stopId) {
+    return jsonResponse({ error: "Stop is required" }, 400);
+  }
+
+  if (!name) {
+    return jsonResponse({ error: "Stop name is required" }, 400);
+  }
+
+  if (!stateOrProvince || !country || !description) {
+    return jsonResponse({ error: "State/province, country, and description are required" }, 400);
+  }
+
+  if (!isIsoDate(date)) {
+    return jsonResponse({ error: "A valid stop date is required" }, 400);
+  }
+
+  if (latitude === null || latitude < -90 || latitude > 90 || longitude === null || longitude < -180 || longitude > 180) {
+    return jsonResponse({ error: "Valid latitude and longitude are required" }, 400);
+  }
+
+  const { data, error } = await context.supabase
+    .from("journey_stop_overrides")
+    .upsert(
+      {
+        city: normalizeNullableText(body.city),
+        country,
+        date,
+        description,
+        destination: normalizeNullableText(body.destination),
+        driving_distance_km: drivingDistanceKm,
+        driving_distance_note: normalizeNullableText(body.drivingDistanceNote),
+        journey_id: journeyId,
+        latitude,
+        longitude,
+        name,
+        overnight: normalizeNullableText(body.overnight),
+        start_point: normalizeNullableText(body.startPoint),
+        state_or_province: stateOrProvince,
+        stop_id: stopId,
+        updated_at: new Date().toISOString(),
+        updated_by: context.userId,
+      },
+      { onConflict: "journey_id,stop_id" },
+    )
+    .select(
+      "city, country, date, description, destination, driving_distance_km, driving_distance_note, journey_id, latitude, longitude, name, overnight, start_point, state_or_province, stop_id, updated_at",
+    )
+    .single();
+
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  return jsonResponse({ ok: true, stop: data });
+}
+
 async function clearLocationHistory(req: Request, context: AdminContext) {
   const body = (await req.json()) as ClearHistoryBody;
   const journeyId = body.journeyId ?? "toronto-seattle-2026";
@@ -206,6 +317,10 @@ async function handleAdminRequest(req: Request) {
 
   if (url.pathname.endsWith("/clear-location-history")) {
     return clearLocationHistory(req, context);
+  }
+
+  if (url.pathname.endsWith("/update-stop")) {
+    return updateStop(req, context);
   }
 
   return jsonResponse({ error: "Admin action not found" }, 404);
