@@ -88,8 +88,10 @@ async function fetchLiveLocationHistory(request, env) {
   const url = new URL(request.url);
   const journeyId = url.searchParams.get("journey_id") ?? "toronto-seattle-2026";
   const trackerId = url.searchParams.get("tracker_id");
-  const requestedLimit = Number(url.searchParams.get("limit") ?? "500");
-  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.round(requestedLimit), 1), 2000) : 500;
+  const requestedLimit = Number(url.searchParams.get("limit") ?? "1000");
+  const requestedOffset = Number(url.searchParams.get("offset") ?? "0");
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.round(requestedLimit), 1), 1000) : 1000;
+  const offset = Number.isFinite(requestedOffset) ? Math.max(Math.round(requestedOffset), 0) : 0;
 
   if (!env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) {
     return Response.json({ error: "Supabase environment variables are not configured" }, { status: 500 });
@@ -98,6 +100,7 @@ async function fetchLiveLocationHistory(request, env) {
   const params = new URLSearchParams({
     journey_id: "eq." + journeyId,
     limit: String(limit),
+    offset: String(offset),
     order: "recorded_at.asc",
     select:
       "accuracy_m,altitude_m,battery_percent,created_at,heading_degrees,id,journey_id,latitude,longitude,recorded_at,sharing_enabled,source,speed_mps,tracker_id",

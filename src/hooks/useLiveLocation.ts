@@ -4,6 +4,10 @@ import { hasSupabaseConfig, supabase } from "../config/supabase";
 export type LiveLocationStatus = "disabled" | "loading" | "live" | "stale" | "hidden" | "error";
 export type LiveLocationHistoryStatus = "idle" | LiveLocationStatus;
 
+const LIVE_LOCATION_HISTORY_PAGE_SIZE = 1000;
+const LIVE_LOCATION_HISTORY_SELECT =
+  "accuracy_m, altitude_m, battery_percent, created_at, heading_degrees, id, journey_id, latitude, longitude, recorded_at, sharing_enabled, source, speed_mps, tracker_id";
+
 export type LiveLocation = {
   accuracyM: number | null;
   altitudeM: number | null;
@@ -133,10 +137,13 @@ async function fetchLiveLocationFromProxy(journeyId: string) {
   return data.location;
 }
 
-async function fetchLiveLocationHistoryFromProxy(journeyId: string) {
-  const response = await fetch(`/api/live-location-history?journey_id=${encodeURIComponent(journeyId)}`, {
-    cache: "no-store",
+async function fetchLiveLocationHistoryPageFromProxy(journeyId: string, offset: number) {
+  const params = new URLSearchParams({
+    journey_id: journeyId,
+    limit: String(LIVE_LOCATION_HISTORY_PAGE_SIZE),
+    offset: String(offset),
   });
+  const response = await fetch(`/api/live-location-history?${params.toString()}`, { cache: "no-store" });
 
   if (!response.ok) {
     throw new Error(await response.text());
@@ -145,6 +152,22 @@ async function fetchLiveLocationHistoryFromProxy(journeyId: string) {
   const data = (await response.json()) as { history: LiveLocationHistoryRow[] };
 
   return data.history;
+}
+
+async function fetchLiveLocationHistoryFromProxy(journeyId: string) {
+  const rows: LiveLocationHistoryRow[] = [];
+  let offset = 0;
+
+  while (true) {
+    const pageRows = await fetchLiveLocationHistoryPageFromProxy(journeyId, offset);
+    rows.push(...pageRows);
+
+    if (pageRows.length < LIVE_LOCATION_HISTORY_PAGE_SIZE) {
+      return rows;
+    }
+
+    offset += LIVE_LOCATION_HISTORY_PAGE_SIZE;
+  }
 }
 
 export function useLiveLocation(journeyId: string) {
@@ -336,27 +359,38 @@ export function useLiveLocationHistory(journeyId: string, enabled: boolean) {
       setStatus("loading");
       setErrorMessage(null);
 
-      const { data, error } = await supabaseClient
-        .from("live_location_history")
-        .select(
-          "accuracy_m, altitude_m, battery_percent, created_at, heading_degrees, id, journey_id, latitude, longitude, recorded_at, sharing_enabled, source, speed_mps, tracker_id",
-        )
-        .eq("journey_id", journeyId)
-        .eq("sharing_enabled", true)
-        .order("recorded_at", { ascending: true })
-        .limit(500);
+      const rows: LiveLocationHistoryRow[] = [];
+      let offset = 0;
 
-      if (!isMounted) {
-        return;
+      while (isMounted) {
+        const { data, error } = await supabaseClient
+          .from("live_location_history")
+          .select(LIVE_LOCATION_HISTORY_SELECT)
+          .eq("journey_id", journeyId)
+          .eq("sharing_enabled", true)
+          .order("recorded_at", { ascending: true })
+          .range(offset, offset + LIVE_LOCATION_HISTORY_PAGE_SIZE - 1);
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (error) {
+          setStatus("error");
+          setErrorMessage(error.message);
+          return;
+        }
+
+        const pageRows = (data ?? []) as LiveLocationHistoryRow[];
+        rows.push(...pageRows);
+
+        if (pageRows.length < LIVE_LOCATION_HISTORY_PAGE_SIZE) {
+          break;
+        }
+
+        offset += LIVE_LOCATION_HISTORY_PAGE_SIZE;
       }
 
-      if (error) {
-        setStatus("error");
-        setErrorMessage(error.message);
-        return;
-      }
-
-      const rows = (data ?? []) as LiveLocationHistoryRow[];
       setHistory(sortHistoryRows(rows).map(toLiveLocationHistoryPoint));
       setStatus(rows.length > 0 ? "live" : "hidden");
     }
