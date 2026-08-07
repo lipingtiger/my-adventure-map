@@ -514,7 +514,7 @@ a {
 }
 
 .map-marker {
-  position: relative;
+  position: absolute;
   display: grid;
   width: 34px !important;
   height: 34px !important;

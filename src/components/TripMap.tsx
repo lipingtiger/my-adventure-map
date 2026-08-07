@@ -46,10 +46,27 @@ function FitRouteToBounds({ mapPositions }: { mapPositions: [number, number][] }
   const map = useMap();
 
   useEffect(() => {
-    if (mapPositions.length > 0) {
-      const bounds = L.latLngBounds(mapPositions) as LatLngBoundsExpression;
-      map.fitBounds(bounds, { padding: [34, 34] });
-    }
+    const fitMapToRoute = () => {
+      map.invalidateSize({ pan: false });
+
+      if (mapPositions.length > 0) {
+        const bounds = L.latLngBounds(mapPositions) as LatLngBoundsExpression;
+        map.fitBounds(bounds, { padding: [34, 34] });
+      }
+    };
+    const frameId = window.requestAnimationFrame(fitMapToRoute);
+    const timeoutIds = [150, 500, 1000].map((delay) => window.setTimeout(fitMapToRoute, delay));
+    const resizeObserver = new ResizeObserver(fitMapToRoute);
+
+    resizeObserver.observe(map.getContainer());
+    window.addEventListener("resize", fitMapToRoute);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", fitMapToRoute);
+    };
   }, [map, mapPositions]);
 
   return null;
