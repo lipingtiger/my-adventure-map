@@ -1,6 +1,11 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { currentJourney } from "../data/journeys";
+import {
+  hasOpenRouteServiceApiKey,
+  openRouteServiceApiKey,
+  openRouteServiceGeocodeUrl,
+} from "../config/openRouteService";
 import { hasSupabaseConfig, supabase, supabaseUrl } from "../config/supabase";
 import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { sortStops } from "../utils/journey";
@@ -10,12 +15,53 @@ type AdminMessage = {
   text: string;
 };
 
+type OpenRouteServiceGeocodeResponse = {
+  features?: Array<{
+    geometry?: {
+      coordinates?: [number, number];
+    };
+    properties?: {
+      label?: string;
+      name?: string;
+    };
+  }>;
+};
+
 function getFunctionUrl(action: string) {
   return `${supabaseUrl.replace(/\/$/, "")}/functions/v1/admin-tools/${action}`;
 }
 
 function toIsoDateTime(value: string) {
   return new Date(value).toISOString();
+}
+
+function getFormString(formData: FormData, key: string) {
+  return String(formData.get(key) ?? "").trim();
+}
+
+function getBoundaryCountry(country: string) {
+  const normalizedCountry = country.trim().toLowerCase();
+
+  if (["canada", "ca", "can"].includes(normalizedCountry)) {
+    return "CAN";
+  }
+
+  if (["united states", "united states of america", "usa", "us", "u.s.", "u.s.a."].includes(normalizedCountry)) {
+    return "USA";
+  }
+
+  return "";
+}
+
+function getGeocodeQuery(formData: FormData) {
+  return [
+    getFormString(formData, "name"),
+    getFormString(formData, "city"),
+    getFormString(formData, "stateOrProvince"),
+    getFormString(formData, "country"),
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 export function AdminPage() {
@@ -30,6 +76,7 @@ export function AdminPage() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
+  const [isFindingCoordinates, setIsFindingCoordinates] = useState(false);
   const [isUpdatingStop, setIsUpdatingStop] = useState(false);
   const { errorMessage: stopOverridesError, journey } = useJourneyStopOverrides(currentJourney);
   const editableStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
@@ -236,6 +283,86 @@ export function AdminPage() {
     setStopMessage({ text: "Stop updated. The map and timeline will refresh.", tone: "success" });
   }
 
+  async function findStopCoordinates(event: FormEvent<HTMLButtonElement>) {
+    const form = event.currentTarget.form;
+
+    if (!form) {
+      return;
+    }
+
+    if (!hasOpenRouteServiceApiKey) {
+      setStopMessage({ text: "OpenRouteService API key is not configured.", tone: "error" });
+      return;
+    }
+
+    const formData = new FormData(form);
+    const query = getGeocodeQuery(formData);
+
+    if (!query) {
+      setStopMessage({ text: "Enter a stop name or city before finding coordinates.", tone: "error" });
+      return;
+    }
+
+    setIsFindingCoordinates(true);
+    setStopMessage(null);
+
+    const params = new URLSearchParams({
+      size: "1",
+      text: query,
+    });
+    const boundaryCountry = getBoundaryCountry(getFormString(formData, "country"));
+
+    if (boundaryCountry) {
+      params.set("boundary.country", boundaryCountry);
+    }
+
+    try {
+      const response = await fetch(`${openRouteServiceGeocodeUrl}?${params.toString()}`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: openRouteServiceApiKey,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenRouteService returned ${response.status}`);
+      }
+
+      const data = (await response.json()) as OpenRouteServiceGeocodeResponse;
+      const feature = data.features?.[0];
+      const coordinates = feature?.geometry?.coordinates;
+
+      if (!coordinates) {
+        setStopMessage({ text: `No coordinates found for "${query}".`, tone: "error" });
+        return;
+      }
+
+      const [longitude, latitude] = coordinates;
+      const latitudeInput = form.elements.namedItem("latitude");
+      const longitudeInput = form.elements.namedItem("longitude");
+
+      if (latitudeInput instanceof HTMLInputElement) {
+        latitudeInput.value = latitude.toFixed(6);
+      }
+
+      if (longitudeInput instanceof HTMLInputElement) {
+        longitudeInput.value = longitude.toFixed(6);
+      }
+
+      setStopMessage({
+        text: `Coordinates found${feature.properties?.label ? `: ${feature.properties.label}` : ""}. Save stop changes to move the marker.`,
+        tone: "success",
+      });
+    } catch (error) {
+      setStopMessage({
+        text: error instanceof Error ? error.message : "Unable to find coordinates.",
+        tone: "error",
+      });
+    } finally {
+      setIsFindingCoordinates(false);
+    }
+  }
+
   if (!hasSupabaseConfig) {
     return (
       <main className="standard-page">
@@ -337,6 +464,14 @@ export function AdminPage() {
                       <input name="longitude" required type="number" step="any" defaultValue={selectedStop.longitude} />
                     </label>
                   </div>
+                  <button
+                    className="admin-secondary-button"
+                    disabled={isFindingCoordinates}
+                    onClick={findStopCoordinates}
+                    type="button"
+                  >
+                    {isFindingCoordinates ? "Finding coordinates..." : "Find coordinates"}
+                  </button>
                   <label>
                     Description
                     <textarea name="description" required rows={3} defaultValue={selectedStop.description} />
