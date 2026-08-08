@@ -4,12 +4,14 @@ import { currentJourney } from "../data/journeys";
 import {
   hasOpenRouteServiceApiKey,
   openRouteServiceApiKey,
+  openRouteServiceDirectionsUrl,
   openRouteServiceGeocodeUrl,
 } from "../config/openRouteService";
 import { hasSupabaseConfig, supabase, supabaseUrl } from "../config/supabase";
 import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
 import { sortStops } from "../utils/journey";
+import type { Photo, Stop, Video } from "../types";
 
 type AdminMessage = {
   tone: "error" | "success";
@@ -28,6 +30,18 @@ type OpenRouteServiceGeocodeResponse = {
   }>;
 };
 
+type OpenRouteServiceDirectionsResponse = {
+  features?: Array<{
+    properties?: {
+      summary?: {
+        distance?: number;
+      };
+    };
+  }>;
+};
+
+const UNASSIGNED_MEDIA_STOP_ID = "__unassigned__";
+
 function getFunctionUrl(action: string) {
   return `${supabaseUrl.replace(/\/$/, "")}/functions/v1/admin-tools/${action}`;
 }
@@ -42,6 +56,39 @@ function getFormString(formData: FormData, key: string) {
 
 function getStopOptionLabel(stop: { name: string; order: number; showInTimeline?: boolean }) {
   return stop.showInTimeline === false ? `Route start: ${stop.name}` : `Day ${stop.order}: ${stop.name}`;
+}
+
+function getMediaStopLabel(stop?: Stop) {
+  return stop ? getStopOptionLabel(stop) : "No specific stop";
+}
+
+function getDateKey(value?: string | null) {
+  return value ? value.slice(0, 10) : null;
+}
+
+function getResolvedMediaStopId(stopIdByDate: Map<string, string>, stopId?: string | null, date?: string | null) {
+  return stopId || stopIdByDate.get(getDateKey(date) ?? "") || UNASSIGNED_MEDIA_STOP_ID;
+}
+
+function getMediaCount(countsByStop: Map<string, number>, stopId: string) {
+  return countsByStop.get(stopId) ?? 0;
+}
+
+function toRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function getStraightLineDistanceKm(startStop: Pick<Stop, "latitude" | "longitude">, endStop: Pick<Stop, "latitude" | "longitude">) {
+  const earthRadiusKm = 6371;
+  const latitudeDelta = toRadians(endStop.latitude - startStop.latitude);
+  const longitudeDelta = toRadians(endStop.longitude - startStop.longitude);
+  const startLatitude = toRadians(startStop.latitude);
+  const endLatitude = toRadians(endStop.latitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(startLatitude) * Math.cos(endLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
 function getBoundaryCountry(country: string) {
@@ -79,10 +126,12 @@ export function AdminPage() {
   const [stopMessage, setStopMessage] = useState<AdminMessage | null>(null);
   const [managePhotoMessage, setManagePhotoMessage] = useState<AdminMessage | null>(null);
   const [selectedStopId, setSelectedStopId] = useState(currentJourney.stops.find((stop) => stop.showInTimeline !== false)?.id ?? currentJourney.stops[0]?.id ?? "");
+  const [selectedMediaStopId, setSelectedMediaStopId] = useState(currentJourney.stops[0]?.id ?? UNASSIGNED_MEDIA_STOP_ID);
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
+  const [isCalculatingDistance, setIsCalculatingDistance] = useState(false);
   const [isFindingCoordinates, setIsFindingCoordinates] = useState(false);
   const [isUpdatingStop, setIsUpdatingStop] = useState(false);
   const [updatingPhotoId, setUpdatingPhotoId] = useState<string | null>(null);
@@ -95,6 +144,56 @@ export function AdminPage() {
   const editableStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
   const orderedStops = useMemo(() => editableStops.filter((stop) => stop.showInTimeline !== false), [editableStops]);
   const photoStops = editableStops;
+  const stopIdByDate = useMemo(
+    () =>
+      new Map(
+        orderedStops.map((stop) => [getDateKey(stop.date) ?? stop.date, stop.id] as const),
+      ),
+    [orderedStops],
+  );
+  const staticPhotos = useMemo(() => journey.photos.filter((photo): photo is Photo & { src: string } => Boolean(photo.src)), [journey.photos]);
+  const staticVideos = useMemo(() => journey.videos.filter((video): video is Video & { src: string } => Boolean(video.src)), [journey.videos]);
+  const mediaCountsByStop = useMemo(() => {
+    const counts = new Map<string, number>();
+    const increment = (stopId: string) => counts.set(stopId, (counts.get(stopId) ?? 0) + 1);
+
+    uploadedPhotos.forEach((photo) => {
+      increment(getResolvedMediaStopId(stopIdByDate, photo.stopId, photo.takenAt));
+    });
+    staticPhotos.forEach((photo) => {
+      increment(getResolvedMediaStopId(stopIdByDate, photo.stopId, photo.date));
+    });
+    staticVideos.forEach((video) => {
+      increment(getResolvedMediaStopId(stopIdByDate, video.stopId, video.date));
+    });
+
+    return counts;
+  }, [staticPhotos, staticVideos, stopIdByDate, uploadedPhotos]);
+  const selectedMediaStop = useMemo(
+    () => photoStops.find((stop) => stop.id === selectedMediaStopId),
+    [photoStops, selectedMediaStopId],
+  );
+  const selectedUploadedPhotos = useMemo(
+    () =>
+      uploadedPhotos.filter(
+        (photo) => getResolvedMediaStopId(stopIdByDate, photo.stopId, photo.takenAt) === selectedMediaStopId,
+      ),
+    [selectedMediaStopId, stopIdByDate, uploadedPhotos],
+  );
+  const selectedStaticPhotos = useMemo(
+    () =>
+      staticPhotos.filter(
+        (photo) => getResolvedMediaStopId(stopIdByDate, photo.stopId, photo.date) === selectedMediaStopId,
+      ),
+    [selectedMediaStopId, staticPhotos, stopIdByDate],
+  );
+  const selectedStaticVideos = useMemo(
+    () =>
+      staticVideos.filter(
+        (video) => getResolvedMediaStopId(stopIdByDate, video.stopId, video.date) === selectedMediaStopId,
+      ),
+    [selectedMediaStopId, staticVideos, stopIdByDate],
+  );
   const selectedStop = useMemo(
     () => editableStops.find((stop) => stop.id === selectedStopId) ?? editableStops[0],
     [editableStops, selectedStopId],
@@ -377,6 +476,100 @@ export function AdminPage() {
     }
   }
 
+  async function calculateDistanceFromPreviousStop(event: FormEvent<HTMLButtonElement>) {
+    const form = event.currentTarget.form;
+
+    if (!form) {
+      return;
+    }
+
+    const formData = new FormData(form);
+    const stopId = getFormString(formData, "stopId");
+    const stopIndex = editableStops.findIndex((stop) => stop.id === stopId);
+    const previousStop = stopIndex > 0 ? editableStops[stopIndex - 1] : null;
+
+    if (!previousStop) {
+      setStopMessage({ text: "This stop does not have a previous stop.", tone: "error" });
+      return;
+    }
+
+    const latitude = Number(formData.get("latitude"));
+    const longitude = Number(formData.get("longitude"));
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setStopMessage({ text: "Enter valid coordinates before calculating distance.", tone: "error" });
+      return;
+    }
+
+    const distanceInput = form.elements.namedItem("drivingDistanceKm");
+    const noteInput = form.elements.namedItem("drivingDistanceNote");
+    const currentCoordinates = { latitude, longitude };
+
+    setIsCalculatingDistance(true);
+    setStopMessage(null);
+
+    try {
+      if (!hasOpenRouteServiceApiKey) {
+        throw new Error("OpenRouteService API key is not configured.");
+      }
+
+      const response = await fetch(openRouteServiceDirectionsUrl, {
+        body: JSON.stringify({
+          coordinates: [
+            [previousStop.longitude, previousStop.latitude],
+            [longitude, latitude],
+          ],
+          instructions: false,
+          preference: "recommended",
+        }),
+        headers: {
+          Authorization: openRouteServiceApiKey,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenRouteService returned ${response.status}`);
+      }
+
+      const data = (await response.json()) as OpenRouteServiceDirectionsResponse;
+      const distanceMeters = data.features?.[0]?.properties?.summary?.distance;
+
+      if (typeof distanceMeters !== "number") {
+        throw new Error("OpenRouteService did not return a route distance.");
+      }
+
+      const distanceKm = Math.round(distanceMeters / 1000);
+
+      if (distanceInput instanceof HTMLInputElement) {
+        distanceInput.value = String(distanceKm);
+      }
+
+      if (noteInput instanceof HTMLInputElement && !noteInput.value.trim()) {
+        noteInput.value = `Calculated from ${previousStop.name}`;
+      }
+
+      setStopMessage({
+        text: `Driving distance calculated from ${previousStop.name}: ${distanceKm} km. Save stop changes to keep it.`,
+        tone: "success",
+      });
+    } catch (error) {
+      const distanceKm = Math.round(getStraightLineDistanceKm(previousStop, currentCoordinates));
+
+      if (distanceInput instanceof HTMLInputElement) {
+        distanceInput.value = String(distanceKm);
+      }
+
+      setStopMessage({
+        text: `Used straight-line distance from ${previousStop.name}: ${distanceKm} km. Save stop changes to keep it.`,
+        tone: "success",
+      });
+    } finally {
+      setIsCalculatingDistance(false);
+    }
+  }
+
   async function updatePhoto(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -581,6 +774,14 @@ export function AdminPage() {
                       <input name="drivingDistanceNote" defaultValue={selectedStop.drivingDistanceNote ?? ""} />
                     </label>
                   </div>
+                  <button
+                    className="admin-secondary-button"
+                    disabled={isCalculatingDistance}
+                    onClick={calculateDistanceFromPreviousStop}
+                    type="button"
+                  >
+                    {isCalculatingDistance ? "Calculating distance..." : "Calculate distance from previous stop"}
+                  </button>
                   <div className="admin-form__columns">
                     <label>
                       Start point
@@ -636,65 +837,125 @@ export function AdminPage() {
             </form>
 
             <section className="admin-panel admin-panel--wide">
-              <h2>Manage Photos</h2>
-              <p className="admin-help">Edit captions, titles, dates, and the stop where each uploaded photo appears.</p>
+              <h2>Manage Media</h2>
+              <p className="admin-help">Choose a stop first, then edit the uploaded photos assigned to that stop.</p>
               {isLoadingUploadedPhotos ? <p className="admin-message">Loading uploaded photos...</p> : null}
               {uploadedPhotosError ? <p className="admin-message admin-message--error">{uploadedPhotosError}</p> : null}
               {managePhotoMessage ? (
                 <p className={`admin-message admin-message--${managePhotoMessage.tone}`}>{managePhotoMessage.text}</p>
               ) : null}
-              {uploadedPhotos.length > 0 ? (
-                <div className="admin-photo-list">
-                  {uploadedPhotos.map((photo) => (
-                    <article className="admin-photo-item" key={photo.id}>
-                      <img alt={photo.title} loading="lazy" src={photo.publicUrl} />
-                      <form className="admin-form admin-photo-form" onSubmit={updatePhoto}>
-                        <input name="photoId" type="hidden" value={photo.id} />
-                        <div className="admin-form__columns">
-                          <label>
-                            Title
-                            <input name="title" required defaultValue={photo.title} />
-                          </label>
-                          <label>
-                            Stop
-                            <select name="stopId" defaultValue={photo.stopId ?? ""}>
-                              <option value="">No specific stop</option>
-                              {photoStops.map((stop) => (
-                                <option key={stop.id} value={stop.id}>
-                                  {getStopOptionLabel(stop)}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            Date
-                            <input name="takenAt" type="date" defaultValue={photo.takenAt ?? ""} />
-                          </label>
-                        </div>
-                        <label>
-                          Caption
-                          <textarea name="caption" rows={3} defaultValue={photo.caption ?? ""} />
-                        </label>
-                        <div className="admin-photo-actions">
-                          <button disabled={updatingPhotoId === photo.id} type="submit">
-                            {updatingPhotoId === photo.id ? "Saving..." : "Save photo"}
-                          </button>
-                          <button
-                            className="admin-danger-button"
-                            disabled={deletingPhotoId === photo.id}
-                            onClick={() => void deletePhoto(photo)}
-                            type="button"
-                          >
-                            {deletingPhotoId === photo.id ? "Deleting..." : "Delete photo"}
-                          </button>
-                        </div>
-                      </form>
-                    </article>
+              <div className="admin-media-manager">
+                <div aria-label="Media stops" className="admin-media-stop-list">
+                  {photoStops.map((stop) => (
+                    <button
+                      className={`admin-media-stop${selectedMediaStopId === stop.id ? " admin-media-stop--active" : ""}`}
+                      key={stop.id}
+                      onClick={() => setSelectedMediaStopId(stop.id)}
+                      type="button"
+                    >
+                      <span>{getStopOptionLabel(stop)}</span>
+                      <strong>{getMediaCount(mediaCountsByStop, stop.id)}</strong>
+                    </button>
                   ))}
+                  <button
+                    className={`admin-media-stop${selectedMediaStopId === UNASSIGNED_MEDIA_STOP_ID ? " admin-media-stop--active" : ""}`}
+                    onClick={() => setSelectedMediaStopId(UNASSIGNED_MEDIA_STOP_ID)}
+                    type="button"
+                  >
+                    <span>No specific stop</span>
+                    <strong>{getMediaCount(mediaCountsByStop, UNASSIGNED_MEDIA_STOP_ID)}</strong>
+                  </button>
                 </div>
-              ) : !isLoadingUploadedPhotos ? (
-                <p className="admin-message">No uploaded photos yet.</p>
-              ) : null}
+                <div className="admin-media-detail">
+                  <div className="admin-media-detail__header">
+                    <h3>{getMediaStopLabel(selectedMediaStop)}</h3>
+                    <span>
+                      {selectedUploadedPhotos.length + selectedStaticPhotos.length + selectedStaticVideos.length} item
+                      {selectedUploadedPhotos.length + selectedStaticPhotos.length + selectedStaticVideos.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  {selectedUploadedPhotos.length > 0 ? (
+                    <div className="admin-photo-list">
+                      {selectedUploadedPhotos.map((photo) => (
+                        <article className="admin-photo-item" key={photo.id}>
+                          <img alt={photo.title} loading="lazy" src={photo.publicUrl} />
+                          <form className="admin-form admin-photo-form" onSubmit={updatePhoto}>
+                            <input name="photoId" type="hidden" value={photo.id} />
+                            <div className="admin-form__columns">
+                              <label>
+                                Title
+                                <input name="title" required defaultValue={photo.title} />
+                              </label>
+                              <label>
+                                Stop
+                                <select name="stopId" defaultValue={photo.stopId ?? ""}>
+                                  <option value="">No specific stop</option>
+                                  {photoStops.map((stop) => (
+                                    <option key={stop.id} value={stop.id}>
+                                      {getStopOptionLabel(stop)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                Date
+                                <input name="takenAt" type="date" defaultValue={photo.takenAt ?? ""} />
+                              </label>
+                            </div>
+                            <label>
+                              Caption
+                              <textarea name="caption" rows={3} defaultValue={photo.caption ?? ""} />
+                            </label>
+                            <div className="admin-photo-actions">
+                              <button disabled={updatingPhotoId === photo.id} type="submit">
+                                {updatingPhotoId === photo.id ? "Saving..." : "Save photo"}
+                              </button>
+                              <button
+                                className="admin-danger-button"
+                                disabled={deletingPhotoId === photo.id}
+                                onClick={() => void deletePhoto(photo)}
+                                type="button"
+                              >
+                                {deletingPhotoId === photo.id ? "Deleting..." : "Delete photo"}
+                              </button>
+                            </div>
+                          </form>
+                        </article>
+                      ))}
+                    </div>
+                  ) : null}
+                  {selectedStaticPhotos.length > 0 || selectedStaticVideos.length > 0 ? (
+                    <div className="admin-static-media-list">
+                      {selectedStaticPhotos.map((photo) => (
+                        <article className="admin-static-media" key={photo.id}>
+                          <img alt={photo.alt} loading="lazy" src={photo.src} />
+                          <div>
+                            <h4>{photo.title}</h4>
+                            {photo.caption ? <p>{photo.caption}</p> : null}
+                            <span>Static photo</span>
+                          </div>
+                        </article>
+                      ))}
+                      {selectedStaticVideos.map((video) => (
+                        <article className="admin-static-media" key={video.id}>
+                          <video controls poster={video.thumbnailSrc} preload="metadata" src={video.src} />
+                          <div>
+                            <h4>{video.title}</h4>
+                            {video.caption ? <p>{video.caption}</p> : null}
+                            <span>Static video</span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : null}
+                  {!isLoadingUploadedPhotos &&
+                  selectedUploadedPhotos.length === 0 &&
+                  selectedStaticPhotos.length === 0 &&
+                  selectedStaticVideos.length === 0 ? (
+                    <p className="admin-message">No media for this stop yet.</p>
+                  ) : null}
+                </div>
+              </div>
             </section>
 
             <form className="admin-panel admin-form" onSubmit={clearHistory}>

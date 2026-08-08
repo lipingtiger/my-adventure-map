@@ -1220,6 +1220,119 @@ a {
   gap: 10px;
 }
 
+.admin-media-manager {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.admin-media-stop-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.admin-media-stop {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf7;
+  color: var(--forest);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 900;
+  text-align: left;
+}
+
+.admin-media-stop strong {
+  min-width: 28px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(15, 122, 122, 0.1);
+  color: var(--teal);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.admin-media-stop--active {
+  border-color: rgba(15, 122, 122, 0.42);
+  background: rgba(15, 122, 122, 0.12);
+}
+
+.admin-media-detail {
+  min-width: 0;
+}
+
+.admin-media-detail__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.admin-media-detail__header h3 {
+  margin: 0;
+  color: var(--forest);
+  font-size: 1.05rem;
+}
+
+.admin-media-detail__header span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.admin-static-media-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.admin-static-media {
+  display: grid;
+  grid-template-columns: minmax(112px, 150px) 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 12px;
+  border: 1px dashed rgba(23, 32, 29, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.62);
+}
+
+.admin-static-media img,
+.admin-static-media video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #dcebe1;
+}
+
+.admin-static-media h4 {
+  margin: 0 0 6px;
+  color: var(--forest);
+}
+
+.admin-static-media p {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+
+.admin-static-media span {
+  color: var(--teal);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
 .admin-message {
   margin: 0;
   padding: 10px 12px;
@@ -1365,6 +1478,11 @@ a {
   }
 
   .admin-photo-item {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-media-manager,
+  .admin-static-media {
     grid-template-columns: 1fr;
   }
 
