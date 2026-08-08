@@ -1,7 +1,7 @@
 import L, { LatLngBoundsExpression } from "leaflet";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
-import { History } from "lucide-react";
+import { History, Maximize2 } from "lucide-react";
 import { hasOpenRouteServiceApiKey } from "../config/openRouteService";
 import { hasSupabaseConfig } from "../config/supabase";
 import { LiveLocation, useLiveLocation, useLiveLocationHistory } from "../hooks/useLiveLocation";
@@ -42,32 +42,122 @@ type StopMedia = {
   videos: MapVideo[];
 };
 
-function FitRouteToBounds({ mapPositions }: { mapPositions: [number, number][] }) {
+function MapViewportController({
+  fitRequestId,
+  historyPositions,
+  journeyId,
+  plannedPositions,
+  routeReady,
+  showLiveHistory,
+}: {
+  fitRequestId: number;
+  historyPositions: [number, number][];
+  journeyId: string;
+  plannedPositions: [number, number][];
+  routeReady: boolean;
+  showLiveHistory: boolean;
+}) {
   const map = useMap();
+  const hasFitHistoryRef = useRef(false);
+  const hasInitialFitRef = useRef(false);
+  const isProgrammaticMoveRef = useRef(false);
+  const userHasInteractedRef = useRef(false);
 
-  useEffect(() => {
-    const fitMapToRoute = () => {
+  const fitPositions = useCallback(
+    (positions: [number, number][]) => {
+      if (positions.length === 0) {
+        return;
+      }
+
+      isProgrammaticMoveRef.current = true;
       map.invalidateSize({ pan: false });
 
-      if (mapPositions.length > 0) {
-        const bounds = L.latLngBounds(mapPositions) as LatLngBoundsExpression;
-        map.fitBounds(bounds, { padding: [34, 34] });
+      const bounds = L.latLngBounds(positions) as LatLngBoundsExpression;
+      map.fitBounds(bounds, { padding: [34, 34] });
+
+      const clearProgrammaticMove = () => {
+        isProgrammaticMoveRef.current = false;
+      };
+      const fallbackTimeoutId = window.setTimeout(clearProgrammaticMove, 500);
+
+      map.once("moveend zoomend", () => {
+        window.clearTimeout(fallbackTimeoutId);
+        clearProgrammaticMove();
+      });
+    },
+    [map],
+  );
+
+  useEffect(() => {
+    hasFitHistoryRef.current = false;
+    hasInitialFitRef.current = false;
+    userHasInteractedRef.current = false;
+  }, [journeyId]);
+
+  useEffect(() => {
+    const markUserInteraction = () => {
+      if (!isProgrammaticMoveRef.current) {
+        userHasInteractedRef.current = true;
       }
     };
-    const frameId = window.requestAnimationFrame(fitMapToRoute);
-    const timeoutIds = [150, 500, 1000].map((delay) => window.setTimeout(fitMapToRoute, delay));
-    const resizeObserver = new ResizeObserver(fitMapToRoute);
+
+    map.on("dragstart", markUserInteraction);
+    map.on("zoomstart", markUserInteraction);
+
+    return () => {
+      map.off("dragstart", markUserInteraction);
+      map.off("zoomstart", markUserInteraction);
+    };
+  }, [map]);
+
+  useEffect(() => {
+    const syncMapSize = () => {
+      map.invalidateSize({ pan: false });
+    };
+    const frameId = window.requestAnimationFrame(syncMapSize);
+    const resizeObserver = new ResizeObserver(syncMapSize);
 
     resizeObserver.observe(map.getContainer());
-    window.addEventListener("resize", fitMapToRoute);
+    window.addEventListener("resize", syncMapSize);
 
     return () => {
       window.cancelAnimationFrame(frameId);
-      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
       resizeObserver.disconnect();
-      window.removeEventListener("resize", fitMapToRoute);
+      window.removeEventListener("resize", syncMapSize);
     };
-  }, [map, mapPositions]);
+  }, [map]);
+
+  useEffect(() => {
+    if (!routeReady || hasInitialFitRef.current || plannedPositions.length === 0) {
+      return;
+    }
+
+    hasInitialFitRef.current = true;
+    fitPositions(plannedPositions);
+  }, [fitPositions, plannedPositions, routeReady]);
+
+  useEffect(() => {
+    if (fitRequestId === 0 || plannedPositions.length === 0) {
+      return;
+    }
+
+    userHasInteractedRef.current = false;
+    fitPositions(plannedPositions);
+  }, [fitPositions, fitRequestId, plannedPositions]);
+
+  useEffect(() => {
+    if (
+      !showLiveHistory ||
+      userHasInteractedRef.current ||
+      hasFitHistoryRef.current ||
+      historyPositions.length < 2
+    ) {
+      return;
+    }
+
+    hasFitHistoryRef.current = true;
+    fitPositions(historyPositions);
+  }, [fitPositions, historyPositions, showLiveHistory]);
 
   return null;
 }
@@ -304,6 +394,7 @@ function StopMediaGallery({ media }: { media?: StopMedia }) {
 }
 
 export function TripMap({ journey }: { journey: Journey }) {
+  const [fitRequestId, setFitRequestId] = useState(0);
   const [showLiveHistory, setShowLiveHistory] = useState(false);
   const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
   const { errorMessage: uploadedPhotoError, photos: uploadedPhotos } = useUploadedPhotos(journey.id);
@@ -322,23 +413,18 @@ export function TripMap({ journey }: { journey: Journey }) {
     () => liveLocationHistory.map((point) => [point.latitude, point.longitude] as [number, number]),
     [liveLocationHistory],
   );
+  const plannedFitPositions = useMemo(
+    () =>
+      routePositions.length > 0
+        ? routePositions
+        : orderedStops.map((stop) => [stop.latitude, stop.longitude] as [number, number]),
+    [orderedStops, routePositions],
+  );
   const mediaByStop = useMemo(
     () => getMapMediaByStop(journey, uploadedPhotos, orderedStops),
     [journey, orderedStops, uploadedPhotos],
   );
-  const mapPositions = useMemo(() => {
-    const positions = [...routePositions];
-
-    if (liveLocation) {
-      positions.push([liveLocation.latitude, liveLocation.longitude]);
-    }
-
-    if (showLiveHistory) {
-      positions.push(...liveHistoryPositions);
-    }
-
-    return positions;
-  }, [liveHistoryPositions, liveLocation, routePositions, showLiveHistory]);
+  const routeReady = status !== "loading";
   const routeIsRoadGeometry = status === "success";
   const routeHasRoadGeometry = status === "success" || status === "partial";
   const liveLocationStatusLabel = {
@@ -396,8 +482,16 @@ export function TripMap({ journey }: { journey: Journey }) {
         {uploadedPhotoError ? <span>{uploadedPhotoError}</span> : null}
         {errorMessage ? <span>{errorMessage}</span> : null}
       </div>
-      {hasSupabaseConfig ? (
-        <div className="live-map-tools" aria-label="Live location map tools">
+      <div className="live-map-tools" aria-label="Map tools">
+        <button
+          className="live-history-toggle"
+          onClick={() => setFitRequestId((currentRequestId) => currentRequestId + 1)}
+          type="button"
+        >
+          <Maximize2 aria-hidden="true" size={16} strokeWidth={2.8} />
+          <span>Fit journey</span>
+        </button>
+        {hasSupabaseConfig ? (
           <button
             aria-pressed={showLiveHistory}
             className="live-history-toggle"
@@ -407,8 +501,8 @@ export function TripMap({ journey }: { journey: Journey }) {
             <History aria-hidden="true" size={16} strokeWidth={2.8} />
             <span>{showLiveHistory ? "Hide actual path" : "Show actual path"}</span>
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       <div
         className="trip-map"
         data-ors-api-key-configured={hasOpenRouteServiceApiKey}
@@ -491,7 +585,14 @@ export function TripMap({ journey }: { journey: Journey }) {
             );
           })}
           <SharedLiveLocationMarker location={liveLocation} />
-          <FitRouteToBounds mapPositions={mapPositions} />
+          <MapViewportController
+            fitRequestId={fitRequestId}
+            historyPositions={liveHistoryPositions}
+            journeyId={journey.id}
+            plannedPositions={plannedFitPositions}
+            routeReady={routeReady}
+            showLiveHistory={showLiveHistory}
+          />
         </MapContainer>
       </div>
     </section>
