@@ -8,6 +8,7 @@ import {
 } from "../config/openRouteService";
 import { hasSupabaseConfig, supabase, supabaseUrl } from "../config/supabase";
 import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
+import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
 import { sortStops } from "../utils/journey";
 
 type AdminMessage = {
@@ -72,13 +73,21 @@ export function AdminPage() {
   const [photoMessage, setPhotoMessage] = useState<AdminMessage | null>(null);
   const [historyMessage, setHistoryMessage] = useState<AdminMessage | null>(null);
   const [stopMessage, setStopMessage] = useState<AdminMessage | null>(null);
+  const [managePhotoMessage, setManagePhotoMessage] = useState<AdminMessage | null>(null);
   const [selectedStopId, setSelectedStopId] = useState(currentJourney.stops.find((stop) => stop.showInTimeline !== false)?.id ?? currentJourney.stops[0]?.id ?? "");
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
   const [isFindingCoordinates, setIsFindingCoordinates] = useState(false);
   const [isUpdatingStop, setIsUpdatingStop] = useState(false);
+  const [updatingPhotoId, setUpdatingPhotoId] = useState<string | null>(null);
   const { errorMessage: stopOverridesError, journey } = useJourneyStopOverrides(currentJourney);
+  const {
+    errorMessage: uploadedPhotosError,
+    isLoading: isLoadingUploadedPhotos,
+    photos: uploadedPhotos,
+  } = useUploadedPhotos(currentJourney.id);
   const editableStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
   const orderedStops = useMemo(() => editableStops.filter((stop) => stop.showInTimeline !== false), [editableStops]);
   const selectedStop = useMemo(
@@ -363,6 +372,83 @@ export function AdminPage() {
     }
   }
 
+  async function updatePhoto(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session) {
+      return;
+    }
+
+    const formData = new FormData(event.currentTarget);
+    const photoId = getFormString(formData, "photoId");
+
+    setUpdatingPhotoId(photoId);
+    setManagePhotoMessage(null);
+
+    const response = await fetch(getFunctionUrl("update-photo"), {
+      body: JSON.stringify({
+        caption: getFormString(formData, "caption") || null,
+        journeyId: currentJourney.id,
+        photoId,
+        stopId: getFormString(formData, "stopId") || null,
+        takenAt: getFormString(formData, "takenAt") || null,
+        title: getFormString(formData, "title"),
+      }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const data = (await response.json()) as { error?: string };
+
+    setUpdatingPhotoId(null);
+
+    if (!response.ok) {
+      setManagePhotoMessage({ text: data.error ?? "Photo update failed.", tone: "error" });
+      return;
+    }
+
+    setManagePhotoMessage({ text: "Photo updated. Gallery and map will refresh.", tone: "success" });
+  }
+
+  async function deletePhoto(photo: UploadedPhoto) {
+    if (!session) {
+      return;
+    }
+
+    const shouldDelete = window.confirm(`Delete "${photo.title}" from the gallery and map?`);
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setDeletingPhotoId(photo.id);
+    setManagePhotoMessage(null);
+
+    const response = await fetch(getFunctionUrl("delete-photo"), {
+      body: JSON.stringify({
+        journeyId: currentJourney.id,
+        photoId: photo.id,
+      }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const data = (await response.json()) as { error?: string };
+
+    setDeletingPhotoId(null);
+
+    if (!response.ok) {
+      setManagePhotoMessage({ text: data.error ?? "Photo deletion failed.", tone: "error" });
+      return;
+    }
+
+    setManagePhotoMessage({ text: "Photo deleted from Gallery and map.", tone: "success" });
+  }
+
   if (!hasSupabaseConfig) {
     return (
       <main className="standard-page">
@@ -543,6 +629,68 @@ export function AdminPage() {
               </button>
               {photoMessage ? <p className={`admin-message admin-message--${photoMessage.tone}`}>{photoMessage.text}</p> : null}
             </form>
+
+            <section className="admin-panel admin-panel--wide">
+              <h2>Manage Photos</h2>
+              <p className="admin-help">Edit captions, titles, dates, and the stop where each uploaded photo appears.</p>
+              {isLoadingUploadedPhotos ? <p className="admin-message">Loading uploaded photos...</p> : null}
+              {uploadedPhotosError ? <p className="admin-message admin-message--error">{uploadedPhotosError}</p> : null}
+              {managePhotoMessage ? (
+                <p className={`admin-message admin-message--${managePhotoMessage.tone}`}>{managePhotoMessage.text}</p>
+              ) : null}
+              {uploadedPhotos.length > 0 ? (
+                <div className="admin-photo-list">
+                  {uploadedPhotos.map((photo) => (
+                    <article className="admin-photo-item" key={photo.id}>
+                      <img alt={photo.title} loading="lazy" src={photo.publicUrl} />
+                      <form className="admin-form admin-photo-form" onSubmit={updatePhoto}>
+                        <input name="photoId" type="hidden" value={photo.id} />
+                        <div className="admin-form__columns">
+                          <label>
+                            Title
+                            <input name="title" required defaultValue={photo.title} />
+                          </label>
+                          <label>
+                            Stop
+                            <select name="stopId" defaultValue={photo.stopId ?? ""}>
+                              <option value="">No specific stop</option>
+                              {orderedStops.map((stop) => (
+                                <option key={stop.id} value={stop.id}>
+                                  Day {stop.order}: {stop.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Date
+                            <input name="takenAt" type="date" defaultValue={photo.takenAt ?? ""} />
+                          </label>
+                        </div>
+                        <label>
+                          Caption
+                          <textarea name="caption" rows={3} defaultValue={photo.caption ?? ""} />
+                        </label>
+                        <div className="admin-photo-actions">
+                          <button disabled={updatingPhotoId === photo.id} type="submit">
+                            {updatingPhotoId === photo.id ? "Saving..." : "Save photo"}
+                          </button>
+                          <button
+                            className="admin-danger-button"
+                            disabled={deletingPhotoId === photo.id}
+                            onClick={() => void deletePhoto(photo)}
+                            type="button"
+                          >
+                            {deletingPhotoId === photo.id ? "Deleting..." : "Delete photo"}
+                          </button>
+                        </div>
+                      </form>
+                    </article>
+                  ))}
+                </div>
+              ) : !isLoadingUploadedPhotos ? (
+                <p className="admin-message">No uploaded photos yet.</p>
+              ) : null}
+            </section>
 
             <form className="admin-panel admin-form" onSubmit={clearHistory}>
               <h2>Clear Actual Route History</h2>

@@ -166,6 +166,20 @@ type UpdateStopBody = {
   stopId?: string;
 };
 
+type UpdatePhotoBody = {
+  caption?: string | null;
+  journeyId?: string;
+  photoId?: string;
+  stopId?: string | null;
+  takenAt?: string | null;
+  title?: string;
+};
+
+type DeletePhotoBody = {
+  journeyId?: string;
+  photoId?: string;
+};
+
 function normalizeNullableText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
 
@@ -188,6 +202,10 @@ function normalizeNumber(value: unknown) {
 
 function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T12:00:00`).getTime());
+}
+
+function isOptionalIsoDate(value: string | null) {
+  return value === null || isIsoDate(value);
 }
 
 async function updateStop(req: Request, context: AdminContext) {
@@ -259,6 +277,86 @@ async function updateStop(req: Request, context: AdminContext) {
   return jsonResponse({ ok: true, stop: data });
 }
 
+async function updatePhoto(req: Request, context: AdminContext) {
+  const body = (await req.json()) as UpdatePhotoBody;
+  const journeyId = normalizeRequiredText(body.journeyId) || "toronto-seattle-2026";
+  const photoId = normalizeRequiredText(body.photoId);
+  const title = normalizeRequiredText(body.title);
+  const takenAt = normalizeNullableText(body.takenAt);
+
+  if (!photoId) {
+    return jsonResponse({ error: "Photo is required" }, 400);
+  }
+
+  if (!title) {
+    return jsonResponse({ error: "Photo title is required" }, 400);
+  }
+
+  if (!isOptionalIsoDate(takenAt)) {
+    return jsonResponse({ error: "A valid photo date is required" }, 400);
+  }
+
+  const { data, error } = await context.supabase
+    .from("journey_photos")
+    .update({
+      caption: normalizeNullableText(body.caption),
+      stop_id: normalizeNullableText(body.stopId),
+      taken_at: takenAt,
+      title,
+    })
+    .eq("id", photoId)
+    .eq("journey_id", journeyId)
+    .select("id, journey_id, stop_id, title, caption, public_url, taken_at, created_at")
+    .single();
+
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  return jsonResponse({ ok: true, photo: data });
+}
+
+async function deletePhoto(req: Request, context: AdminContext) {
+  const body = (await req.json()) as DeletePhotoBody;
+  const journeyId = normalizeRequiredText(body.journeyId) || "toronto-seattle-2026";
+  const photoId = normalizeRequiredText(body.photoId);
+
+  if (!photoId) {
+    return jsonResponse({ error: "Photo is required" }, 400);
+  }
+
+  const { data: photo, error: selectError } = await context.supabase
+    .from("journey_photos")
+    .select("id, storage_bucket, storage_path")
+    .eq("id", photoId)
+    .eq("journey_id", journeyId)
+    .single();
+
+  if (selectError) {
+    return jsonResponse({ error: selectError.message }, 500);
+  }
+
+  const { error: storageError } = await context.supabase.storage
+    .from(photo.storage_bucket)
+    .remove([photo.storage_path]);
+
+  if (storageError) {
+    return jsonResponse({ error: storageError.message }, 500);
+  }
+
+  const { error: deleteError } = await context.supabase
+    .from("journey_photos")
+    .delete()
+    .eq("id", photoId)
+    .eq("journey_id", journeyId);
+
+  if (deleteError) {
+    return jsonResponse({ error: deleteError.message }, 500);
+  }
+
+  return jsonResponse({ ok: true, photoId });
+}
+
 async function clearLocationHistory(req: Request, context: AdminContext) {
   const body = (await req.json()) as ClearHistoryBody;
   const journeyId = body.journeyId ?? "toronto-seattle-2026";
@@ -321,6 +419,14 @@ async function handleAdminRequest(req: Request) {
 
   if (url.pathname.endsWith("/update-stop")) {
     return updateStop(req, context);
+  }
+
+  if (url.pathname.endsWith("/update-photo")) {
+    return updatePhoto(req, context);
+  }
+
+  if (url.pathname.endsWith("/delete-photo")) {
+    return deletePhoto(req, context);
   }
 
   return jsonResponse({ error: "Admin action not found" }, 404);
