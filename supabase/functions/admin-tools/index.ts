@@ -234,6 +234,41 @@ function isHttpUrl(value: string) {
   }
 }
 
+function getYouTubeVideoId(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, "");
+
+    if (host === "youtu.be") {
+      return url.pathname.split("/").filter(Boolean)[0] ?? null;
+    }
+
+    if (host.endsWith("youtube.com")) {
+      const watchId = url.searchParams.get("v");
+
+      if (watchId) {
+        return watchId;
+      }
+
+      const [kind, id] = url.pathname.split("/").filter(Boolean);
+
+      if (["embed", "shorts", "live"].includes(kind) && id) {
+        return id;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getYouTubeThumbnailUrl(value: string) {
+  const videoId = getYouTubeVideoId(value);
+
+  return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null;
+}
+
 async function updateStop(req: Request, context: AdminContext) {
   const body = (await req.json()) as UpdateStopBody;
   const journeyId = normalizeRequiredText(body.journeyId) || "toronto-seattle-2026";
@@ -386,7 +421,7 @@ async function deletePhoto(req: Request, context: AdminContext) {
 function getVideoLinkPayload(body: VideoLinkBody) {
   const title = normalizeRequiredText(body.title);
   const videoUrl = normalizeRequiredText(body.videoUrl);
-  const thumbnailUrl = normalizeNullableText(body.thumbnailUrl);
+  const thumbnailUrl = normalizeNullableText(body.thumbnailUrl) ?? getYouTubeThumbnailUrl(videoUrl);
   const takenAt = normalizeNullableText(body.takenAt);
 
   if (!title) {

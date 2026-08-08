@@ -71,6 +71,62 @@ function getResolvedMediaStopId(stopIdByDate: Map<string, string>, stopId?: stri
   return stopId || stopIdByDate.get(getDateKey(date) ?? "") || UNASSIGNED_MEDIA_STOP_ID;
 }
 
+function getYouTubeVideoId(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, "");
+
+    if (host === "youtu.be") {
+      return url.pathname.split("/").filter(Boolean)[0] ?? null;
+    }
+
+    if (host.endsWith("youtube.com")) {
+      const watchId = url.searchParams.get("v");
+
+      if (watchId) {
+        return watchId;
+      }
+
+      const [kind, id] = url.pathname.split("/").filter(Boolean);
+
+      if (["embed", "shorts", "live"].includes(kind) && id) {
+        return id;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getYouTubeThumbnailUrl(value: string) {
+  const videoId = getYouTubeVideoId(value);
+
+  return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null;
+}
+
+function autofillYouTubeThumbnail(event: FormEvent<HTMLInputElement>) {
+  const input = event.currentTarget;
+  const form = input.form;
+
+  if (!form) {
+    return;
+  }
+
+  const thumbnailInput = form.elements.namedItem("thumbnailUrl");
+
+  if (!(thumbnailInput instanceof HTMLInputElement) || thumbnailInput.value.trim()) {
+    return;
+  }
+
+  const thumbnailUrl = getYouTubeThumbnailUrl(input.value.trim());
+
+  if (thumbnailUrl) {
+    thumbnailInput.value = thumbnailUrl;
+  }
+}
+
 function getMediaCount(countsByStop: Map<string, number>, stopId: string) {
   return countsByStop.get(stopId) ?? 0;
 }
@@ -1000,7 +1056,7 @@ export function AdminPage() {
               </label>
               <label>
                 Video URL
-                <input name="videoUrl" placeholder="https://..." required type="url" />
+                <input name="videoUrl" onBlur={autofillYouTubeThumbnail} placeholder="https://..." required type="url" />
               </label>
               <label>
                 Thumbnail URL
@@ -1148,7 +1204,13 @@ export function AdminPage() {
                             </div>
                             <label>
                               Video URL
-                              <input name="videoUrl" required type="url" defaultValue={video.videoUrl} />
+                              <input
+                                name="videoUrl"
+                                onBlur={autofillYouTubeThumbnail}
+                                required
+                                type="url"
+                                defaultValue={video.videoUrl}
+                              />
                             </label>
                             <label>
                               Thumbnail URL
