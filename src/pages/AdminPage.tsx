@@ -40,6 +40,10 @@ function getFormString(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
 
+function getStopOptionLabel(stop: { name: string; order: number; showInTimeline?: boolean }) {
+  return stop.showInTimeline === false ? `Route start: ${stop.name}` : `Day ${stop.order}: ${stop.name}`;
+}
+
 function getBoundaryCountry(country: string) {
   const normalizedCountry = country.trim().toLowerCase();
 
@@ -90,6 +94,7 @@ export function AdminPage() {
   } = useUploadedPhotos(currentJourney.id);
   const editableStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
   const orderedStops = useMemo(() => editableStops.filter((stop) => stop.showInTimeline !== false), [editableStops]);
+  const photoStops = editableStops;
   const selectedStop = useMemo(
     () => editableStops.find((stop) => stop.id === selectedStopId) ?? editableStops[0],
     [editableStops, selectedStopId],
@@ -605,9 +610,9 @@ export function AdminPage() {
                 Stop
                 <select name="stopId">
                   <option value="">No specific stop</option>
-                  {orderedStops.map((stop) => (
+                  {photoStops.map((stop) => (
                     <option key={stop.id} value={stop.id}>
-                      Day {stop.order}: {stop.name}
+                      {getStopOptionLabel(stop)}
                     </option>
                   ))}
                 </select>
@@ -654,9 +659,9 @@ export function AdminPage() {
                             Stop
                             <select name="stopId" defaultValue={photo.stopId ?? ""}>
                               <option value="">No specific stop</option>
-                              {orderedStops.map((stop) => (
+                              {photoStops.map((stop) => (
                                 <option key={stop.id} value={stop.id}>
-                                  Day {stop.order}: {stop.name}
+                                  {getStopOptionLabel(stop)}
                                 </option>
                               ))}
                             </select>
