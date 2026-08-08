@@ -10,6 +10,7 @@ import {
 import { hasSupabaseConfig, supabase, supabaseUrl } from "../config/supabase";
 import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
+import { UploadedVideo, useUploadedVideos } from "../hooks/useUploadedVideos";
 import { sortStops } from "../utils/journey";
 import type { Photo, Stop, Video } from "../types";
 
@@ -122,25 +123,34 @@ export function AdminPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [authMessage, setAuthMessage] = useState<AdminMessage | null>(null);
   const [photoMessage, setPhotoMessage] = useState<AdminMessage | null>(null);
+  const [videoMessage, setVideoMessage] = useState<AdminMessage | null>(null);
   const [historyMessage, setHistoryMessage] = useState<AdminMessage | null>(null);
   const [stopMessage, setStopMessage] = useState<AdminMessage | null>(null);
   const [managePhotoMessage, setManagePhotoMessage] = useState<AdminMessage | null>(null);
   const [selectedStopId, setSelectedStopId] = useState(currentJourney.stops.find((stop) => stop.showInTimeline !== false)?.id ?? currentJourney.stops[0]?.id ?? "");
   const [selectedMediaStopId, setSelectedMediaStopId] = useState(currentJourney.stops[0]?.id ?? UNASSIGNED_MEDIA_STOP_ID);
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
+  const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isAddingVideo, setIsAddingVideo] = useState(false);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
   const [isCalculatingDistance, setIsCalculatingDistance] = useState(false);
   const [isFindingCoordinates, setIsFindingCoordinates] = useState(false);
   const [isUpdatingStop, setIsUpdatingStop] = useState(false);
   const [updatingPhotoId, setUpdatingPhotoId] = useState<string | null>(null);
+  const [updatingVideoId, setUpdatingVideoId] = useState<string | null>(null);
   const { errorMessage: stopOverridesError, journey } = useJourneyStopOverrides(currentJourney);
   const {
     errorMessage: uploadedPhotosError,
     isLoading: isLoadingUploadedPhotos,
     photos: uploadedPhotos,
   } = useUploadedPhotos(currentJourney.id);
+  const {
+    errorMessage: uploadedVideosError,
+    isLoading: isLoadingUploadedVideos,
+    videos: uploadedVideos,
+  } = useUploadedVideos(currentJourney.id);
   const editableStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
   const orderedStops = useMemo(() => editableStops.filter((stop) => stop.showInTimeline !== false), [editableStops]);
   const photoStops = editableStops;
@@ -160,6 +170,9 @@ export function AdminPage() {
     uploadedPhotos.forEach((photo) => {
       increment(getResolvedMediaStopId(stopIdByDate, photo.stopId, photo.takenAt));
     });
+    uploadedVideos.forEach((video) => {
+      increment(getResolvedMediaStopId(stopIdByDate, video.stopId, video.takenAt));
+    });
     staticPhotos.forEach((photo) => {
       increment(getResolvedMediaStopId(stopIdByDate, photo.stopId, photo.date));
     });
@@ -168,7 +181,7 @@ export function AdminPage() {
     });
 
     return counts;
-  }, [staticPhotos, staticVideos, stopIdByDate, uploadedPhotos]);
+  }, [staticPhotos, staticVideos, stopIdByDate, uploadedPhotos, uploadedVideos]);
   const selectedMediaStop = useMemo(
     () => photoStops.find((stop) => stop.id === selectedMediaStopId),
     [photoStops, selectedMediaStopId],
@@ -186,6 +199,13 @@ export function AdminPage() {
         (photo) => getResolvedMediaStopId(stopIdByDate, photo.stopId, photo.date) === selectedMediaStopId,
       ),
     [selectedMediaStopId, staticPhotos, stopIdByDate],
+  );
+  const selectedUploadedVideos = useMemo(
+    () =>
+      uploadedVideos.filter(
+        (video) => getResolvedMediaStopId(stopIdByDate, video.stopId, video.takenAt) === selectedMediaStopId,
+      ),
+    [selectedMediaStopId, stopIdByDate, uploadedVideos],
   );
   const selectedStaticVideos = useMemo(
     () =>
@@ -303,6 +323,48 @@ export function AdminPage() {
 
     form.reset();
     setPhotoMessage({ text: "Photo uploaded. It will appear in the Gallery.", tone: "success" });
+  }
+
+  async function addVideoLink(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session) {
+      return;
+    }
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    setIsAddingVideo(true);
+    setVideoMessage(null);
+
+    const response = await fetch(getFunctionUrl("add-video-link"), {
+      body: JSON.stringify({
+        caption: getFormString(formData, "caption") || null,
+        journeyId: currentJourney.id,
+        stopId: getFormString(formData, "stopId") || null,
+        takenAt: getFormString(formData, "takenAt") || null,
+        thumbnailUrl: getFormString(formData, "thumbnailUrl") || null,
+        title: getFormString(formData, "title"),
+        videoUrl: getFormString(formData, "videoUrl"),
+      }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const data = (await response.json()) as { error?: string };
+
+    setIsAddingVideo(false);
+
+    if (!response.ok) {
+      setVideoMessage({ text: data.error ?? "Video link upload failed.", tone: "error" });
+      return;
+    }
+
+    form.reset();
+    setVideoMessage({ text: "Video link added. It will appear on the map.", tone: "success" });
   }
 
   async function clearHistory(event: FormEvent<HTMLFormElement>) {
@@ -647,6 +709,85 @@ export function AdminPage() {
     setManagePhotoMessage({ text: "Photo deleted from Gallery and map.", tone: "success" });
   }
 
+  async function updateVideoLink(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session) {
+      return;
+    }
+
+    const formData = new FormData(event.currentTarget);
+    const videoId = getFormString(formData, "videoId");
+
+    setUpdatingVideoId(videoId);
+    setManagePhotoMessage(null);
+
+    const response = await fetch(getFunctionUrl("update-video-link"), {
+      body: JSON.stringify({
+        caption: getFormString(formData, "caption") || null,
+        journeyId: currentJourney.id,
+        stopId: getFormString(formData, "stopId") || null,
+        takenAt: getFormString(formData, "takenAt") || null,
+        thumbnailUrl: getFormString(formData, "thumbnailUrl") || null,
+        title: getFormString(formData, "title"),
+        videoId,
+        videoUrl: getFormString(formData, "videoUrl"),
+      }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const data = (await response.json()) as { error?: string };
+
+    setUpdatingVideoId(null);
+
+    if (!response.ok) {
+      setManagePhotoMessage({ text: data.error ?? "Video link update failed.", tone: "error" });
+      return;
+    }
+
+    setManagePhotoMessage({ text: "Video link updated. Map will refresh.", tone: "success" });
+  }
+
+  async function deleteVideoLink(video: UploadedVideo) {
+    if (!session) {
+      return;
+    }
+
+    const shouldDelete = window.confirm(`Delete "${video.title}" from the map?`);
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setDeletingVideoId(video.id);
+    setManagePhotoMessage(null);
+
+    const response = await fetch(getFunctionUrl("delete-video-link"), {
+      body: JSON.stringify({
+        journeyId: currentJourney.id,
+        videoId: video.id,
+      }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const data = (await response.json()) as { error?: string };
+
+    setDeletingVideoId(null);
+
+    if (!response.ok) {
+      setManagePhotoMessage({ text: data.error ?? "Video link deletion failed.", tone: "error" });
+      return;
+    }
+
+    setManagePhotoMessage({ text: "Video link deleted from the map.", tone: "success" });
+  }
+
   if (!hasSupabaseConfig) {
     return (
       <main className="standard-page">
@@ -836,11 +977,52 @@ export function AdminPage() {
               {photoMessage ? <p className={`admin-message admin-message--${photoMessage.tone}`}>{photoMessage.text}</p> : null}
             </form>
 
+            <form className="admin-panel admin-form" onSubmit={addVideoLink}>
+              <h2>Add Video Link</h2>
+              <label>
+                Title
+                <input name="title" placeholder="Driving through the Badlands" required />
+              </label>
+              <label>
+                Stop
+                <select name="stopId">
+                  <option value="">No specific stop</option>
+                  {photoStops.map((stop) => (
+                    <option key={stop.id} value={stop.id}>
+                      {getStopOptionLabel(stop)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Date
+                <input name="takenAt" type="date" />
+              </label>
+              <label>
+                Video URL
+                <input name="videoUrl" placeholder="https://..." required type="url" />
+              </label>
+              <label>
+                Thumbnail URL
+                <input name="thumbnailUrl" placeholder="https://..." type="url" />
+              </label>
+              <label>
+                Caption
+                <textarea name="caption" placeholder="A short note about this video." rows={4} />
+              </label>
+              <button disabled={isAddingVideo} type="submit">
+                {isAddingVideo ? "Adding..." : "Add video link"}
+              </button>
+              {videoMessage ? <p className={`admin-message admin-message--${videoMessage.tone}`}>{videoMessage.text}</p> : null}
+            </form>
+
             <section className="admin-panel admin-panel--wide">
               <h2>Manage Media</h2>
               <p className="admin-help">Choose a stop first, then edit the uploaded photos assigned to that stop.</p>
               {isLoadingUploadedPhotos ? <p className="admin-message">Loading uploaded photos...</p> : null}
+              {isLoadingUploadedVideos ? <p className="admin-message">Loading video links...</p> : null}
               {uploadedPhotosError ? <p className="admin-message admin-message--error">{uploadedPhotosError}</p> : null}
+              {uploadedVideosError ? <p className="admin-message admin-message--error">{uploadedVideosError}</p> : null}
               {managePhotoMessage ? (
                 <p className={`admin-message admin-message--${managePhotoMessage.tone}`}>{managePhotoMessage.text}</p>
               ) : null}
@@ -870,8 +1052,18 @@ export function AdminPage() {
                   <div className="admin-media-detail__header">
                     <h3>{getMediaStopLabel(selectedMediaStop)}</h3>
                     <span>
-                      {selectedUploadedPhotos.length + selectedStaticPhotos.length + selectedStaticVideos.length} item
-                      {selectedUploadedPhotos.length + selectedStaticPhotos.length + selectedStaticVideos.length === 1 ? "" : "s"}
+                      {selectedUploadedPhotos.length +
+                        selectedUploadedVideos.length +
+                        selectedStaticPhotos.length +
+                        selectedStaticVideos.length}{" "}
+                      item
+                      {selectedUploadedPhotos.length +
+                        selectedUploadedVideos.length +
+                        selectedStaticPhotos.length +
+                        selectedStaticVideos.length ===
+                      1
+                        ? ""
+                        : "s"}
                     </span>
                   </div>
                   {selectedUploadedPhotos.length > 0 ? (
@@ -924,6 +1116,69 @@ export function AdminPage() {
                       ))}
                     </div>
                   ) : null}
+                  {selectedUploadedVideos.length > 0 ? (
+                    <div className="admin-photo-list">
+                      {selectedUploadedVideos.map((video) => (
+                        <article className="admin-photo-item" key={video.id}>
+                          <div className="admin-video-preview">
+                            {video.thumbnailUrl ? <img alt={video.title} loading="lazy" src={video.thumbnailUrl} /> : <span>Video link</span>}
+                          </div>
+                          <form className="admin-form admin-photo-form" onSubmit={updateVideoLink}>
+                            <input name="videoId" type="hidden" value={video.id} />
+                            <div className="admin-form__columns">
+                              <label>
+                                Title
+                                <input name="title" required defaultValue={video.title} />
+                              </label>
+                              <label>
+                                Stop
+                                <select name="stopId" defaultValue={video.stopId ?? ""}>
+                                  <option value="">No specific stop</option>
+                                  {photoStops.map((stop) => (
+                                    <option key={stop.id} value={stop.id}>
+                                      {getStopOptionLabel(stop)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                Date
+                                <input name="takenAt" type="date" defaultValue={video.takenAt ?? ""} />
+                              </label>
+                            </div>
+                            <label>
+                              Video URL
+                              <input name="videoUrl" required type="url" defaultValue={video.videoUrl} />
+                            </label>
+                            <label>
+                              Thumbnail URL
+                              <input name="thumbnailUrl" type="url" defaultValue={video.thumbnailUrl ?? ""} />
+                            </label>
+                            <label>
+                              Caption
+                              <textarea name="caption" rows={3} defaultValue={video.caption ?? ""} />
+                            </label>
+                            <div className="admin-photo-actions">
+                              <button disabled={updatingVideoId === video.id} type="submit">
+                                {updatingVideoId === video.id ? "Saving..." : "Save video link"}
+                              </button>
+                              <a className="admin-inline-link" href={video.videoUrl} rel="noreferrer" target="_blank">
+                                Open video
+                              </a>
+                              <button
+                                className="admin-danger-button"
+                                disabled={deletingVideoId === video.id}
+                                onClick={() => void deleteVideoLink(video)}
+                                type="button"
+                              >
+                                {deletingVideoId === video.id ? "Deleting..." : "Delete video link"}
+                              </button>
+                            </div>
+                          </form>
+                        </article>
+                      ))}
+                    </div>
+                  ) : null}
                   {selectedStaticPhotos.length > 0 || selectedStaticVideos.length > 0 ? (
                     <div className="admin-static-media-list">
                       {selectedStaticPhotos.map((photo) => (
@@ -949,7 +1204,9 @@ export function AdminPage() {
                     </div>
                   ) : null}
                   {!isLoadingUploadedPhotos &&
+                  !isLoadingUploadedVideos &&
                   selectedUploadedPhotos.length === 0 &&
+                  selectedUploadedVideos.length === 0 &&
                   selectedStaticPhotos.length === 0 &&
                   selectedStaticVideos.length === 0 ? (
                     <p className="admin-message">No media for this stop yet.</p>

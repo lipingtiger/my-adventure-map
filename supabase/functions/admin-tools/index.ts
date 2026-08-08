@@ -180,6 +180,22 @@ type DeletePhotoBody = {
   photoId?: string;
 };
 
+type VideoLinkBody = {
+  caption?: string | null;
+  journeyId?: string;
+  stopId?: string | null;
+  takenAt?: string | null;
+  thumbnailUrl?: string | null;
+  title?: string;
+  videoId?: string;
+  videoUrl?: string;
+};
+
+type DeleteVideoLinkBody = {
+  journeyId?: string;
+  videoId?: string;
+};
+
 function normalizeNullableText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
 
@@ -206,6 +222,16 @@ function isIsoDate(value: string) {
 
 function isOptionalIsoDate(value: string | null) {
   return value === null || isIsoDate(value);
+}
+
+function isHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 async function updateStop(req: Request, context: AdminContext) {
@@ -357,6 +383,117 @@ async function deletePhoto(req: Request, context: AdminContext) {
   return jsonResponse({ ok: true, photoId });
 }
 
+function getVideoLinkPayload(body: VideoLinkBody) {
+  const title = normalizeRequiredText(body.title);
+  const videoUrl = normalizeRequiredText(body.videoUrl);
+  const thumbnailUrl = normalizeNullableText(body.thumbnailUrl);
+  const takenAt = normalizeNullableText(body.takenAt);
+
+  if (!title) {
+    return { error: "Video title is required" };
+  }
+
+  if (!videoUrl || !isHttpUrl(videoUrl)) {
+    return { error: "A valid video URL is required" };
+  }
+
+  if (thumbnailUrl && !isHttpUrl(thumbnailUrl)) {
+    return { error: "Thumbnail URL must be a valid URL" };
+  }
+
+  if (!isOptionalIsoDate(takenAt)) {
+    return { error: "A valid video date is required" };
+  }
+
+  return {
+    payload: {
+      caption: normalizeNullableText(body.caption),
+      stop_id: normalizeNullableText(body.stopId),
+      taken_at: takenAt,
+      thumbnail_url: thumbnailUrl,
+      title,
+      video_url: videoUrl,
+    },
+  };
+}
+
+async function addVideoLink(req: Request, context: AdminContext) {
+  const body = (await req.json()) as VideoLinkBody;
+  const journeyId = normalizeRequiredText(body.journeyId) || "toronto-seattle-2026";
+  const result = getVideoLinkPayload(body);
+
+  if ("error" in result) {
+    return jsonResponse({ error: result.error }, 400);
+  }
+
+  const { data, error } = await context.supabase
+    .from("journey_video_links")
+    .insert({
+      ...result.payload,
+      journey_id: journeyId,
+      uploaded_by: context.userId,
+    })
+    .select("id, journey_id, stop_id, title, caption, video_url, thumbnail_url, taken_at, created_at")
+    .single();
+
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  return jsonResponse({ ok: true, video: data });
+}
+
+async function updateVideoLink(req: Request, context: AdminContext) {
+  const body = (await req.json()) as VideoLinkBody;
+  const journeyId = normalizeRequiredText(body.journeyId) || "toronto-seattle-2026";
+  const videoId = normalizeRequiredText(body.videoId);
+  const result = getVideoLinkPayload(body);
+
+  if (!videoId) {
+    return jsonResponse({ error: "Video is required" }, 400);
+  }
+
+  if ("error" in result) {
+    return jsonResponse({ error: result.error }, 400);
+  }
+
+  const { data, error } = await context.supabase
+    .from("journey_video_links")
+    .update(result.payload)
+    .eq("id", videoId)
+    .eq("journey_id", journeyId)
+    .select("id, journey_id, stop_id, title, caption, video_url, thumbnail_url, taken_at, created_at")
+    .single();
+
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  return jsonResponse({ ok: true, video: data });
+}
+
+async function deleteVideoLink(req: Request, context: AdminContext) {
+  const body = (await req.json()) as DeleteVideoLinkBody;
+  const journeyId = normalizeRequiredText(body.journeyId) || "toronto-seattle-2026";
+  const videoId = normalizeRequiredText(body.videoId);
+
+  if (!videoId) {
+    return jsonResponse({ error: "Video is required" }, 400);
+  }
+
+  const { error } = await context.supabase
+    .from("journey_video_links")
+    .delete()
+    .eq("id", videoId)
+    .eq("journey_id", journeyId);
+
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  return jsonResponse({ ok: true, videoId });
+}
+
 async function clearLocationHistory(req: Request, context: AdminContext) {
   const body = (await req.json()) as ClearHistoryBody;
   const journeyId = body.journeyId ?? "toronto-seattle-2026";
@@ -427,6 +564,18 @@ async function handleAdminRequest(req: Request) {
 
   if (url.pathname.endsWith("/delete-photo")) {
     return deletePhoto(req, context);
+  }
+
+  if (url.pathname.endsWith("/add-video-link")) {
+    return addVideoLink(req, context);
+  }
+
+  if (url.pathname.endsWith("/update-video-link")) {
+    return updateVideoLink(req, context);
+  }
+
+  if (url.pathname.endsWith("/delete-video-link")) {
+    return deleteVideoLink(req, context);
   }
 
   return jsonResponse({ error: "Admin action not found" }, 404);

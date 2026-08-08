@@ -7,6 +7,7 @@ import { hasSupabaseConfig } from "../config/supabase";
 import { LiveLocation, useLiveLocation, useLiveLocationHistory } from "../hooks/useLiveLocation";
 import { useOpenRouteServiceRoute } from "../hooks/useOpenRouteServiceRoute";
 import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
+import { UploadedVideo, useUploadedVideos } from "../hooks/useUploadedVideos";
 import { Journey, Photo, Stop, StopType, Video } from "../types";
 import { formatDisplayDate, getStopAttractions, getStopHikes, getStopLodging, sortStops } from "../utils/journey";
 
@@ -29,11 +30,11 @@ type MapPhoto = {
 };
 
 type MapVideo = {
-  caption?: string;
-  date?: string;
+  caption?: string | null;
+  date?: string | null;
   id: string;
   src: string;
-  thumbnailSrc?: string;
+  thumbnailSrc?: string | null;
   title: string;
 };
 
@@ -285,7 +286,12 @@ function addMediaToStop<T>(mediaByStop: Map<string, StopMedia>, stopId: string, 
   mediaByStop.set(stopId, currentMedia);
 }
 
-function getMapMediaByStop(journey: Journey, uploadedPhotos: UploadedPhoto[], orderedStops: Stop[]) {
+function getMapMediaByStop(
+  journey: Journey,
+  uploadedPhotos: UploadedPhoto[],
+  uploadedVideos: UploadedVideo[],
+  orderedStops: Stop[],
+) {
   const stopIdByDate = new Map(
     orderedStops
       .filter((stop) => stop.showInTimeline !== false)
@@ -326,6 +332,23 @@ function getMapMediaByStop(journey: Journey, uploadedPhotos: UploadedPhoto[], or
       id: photo.id,
       src: photo.publicUrl,
       title: photo.title,
+    });
+  });
+
+  uploadedVideos.forEach((video) => {
+    const stopId = getStopIdForMedia(stopIdByDate, video.stopId, video.takenAt);
+
+    if (!stopId) {
+      return;
+    }
+
+    addMediaToStop(mediaByStop, stopId, "videos", {
+      caption: video.caption,
+      date: video.takenAt,
+      id: video.id,
+      src: video.videoUrl,
+      thumbnailSrc: video.thumbnailUrl,
+      title: video.title,
     });
   });
 
@@ -376,15 +399,12 @@ function StopMediaGallery({ media }: { media?: StopMedia }) {
       {media.videos.length > 0 ? (
         <div className="map-popup__media-section">
           <h4>Videos</h4>
-          <div className="map-popup__video-list">
+          <div className="map-popup__video-grid">
             {media.videos.map((video) => (
-              <div className="map-popup__video" key={video.id}>
-                <video controls poster={video.thumbnailSrc} preload="metadata" src={video.src} />
-                <a href={video.src} rel="noreferrer" target="_blank">
-                  {video.title}
-                </a>
-                {video.caption ? <p>{video.caption}</p> : null}
-              </div>
+              <a className="map-popup__video-card" href={video.src} key={video.id} rel="noreferrer" target="_blank">
+                {video.thumbnailSrc ? <img alt={video.title} loading="lazy" src={video.thumbnailSrc} /> : <span>Video</span>}
+                <strong>{video.title}</strong>
+              </a>
             ))}
           </div>
         </div>
@@ -398,6 +418,7 @@ export function TripMap({ journey }: { journey: Journey }) {
   const [showLiveHistory, setShowLiveHistory] = useState(false);
   const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
   const { errorMessage: uploadedPhotoError, photos: uploadedPhotos } = useUploadedPhotos(journey.id);
+  const { errorMessage: uploadedVideoError, videos: uploadedVideos } = useUploadedVideos(journey.id);
   const { errorMessage, routePositions, routeSegments, status, summary } = useOpenRouteServiceRoute(orderedStops);
   const { errorMessage: liveLocationError, location: liveLocation, status: liveLocationStatus } = useLiveLocation(
     journey.id,
@@ -421,8 +442,8 @@ export function TripMap({ journey }: { journey: Journey }) {
     [orderedStops, routePositions],
   );
   const mediaByStop = useMemo(
-    () => getMapMediaByStop(journey, uploadedPhotos, orderedStops),
-    [journey, orderedStops, uploadedPhotos],
+    () => getMapMediaByStop(journey, uploadedPhotos, uploadedVideos, orderedStops),
+    [journey, orderedStops, uploadedPhotos, uploadedVideos],
   );
   const routeReady = status !== "loading";
   const routeIsRoadGeometry = status === "success";
@@ -479,7 +500,8 @@ export function TripMap({ journey }: { journey: Journey }) {
         {showLiveHistory ? <span>{liveHistoryStatusLabel[liveHistoryStatus]}</span> : null}
         {liveLocationError ? <span>{liveLocationError}</span> : null}
         {liveHistoryError ? <span>{liveHistoryError}</span> : null}
-        {uploadedPhotoError ? <span>{uploadedPhotoError}</span> : null}
+          {uploadedPhotoError ? <span>{uploadedPhotoError}</span> : null}
+          {uploadedVideoError ? <span>{uploadedVideoError}</span> : null}
         {errorMessage ? <span>{errorMessage}</span> : null}
       </div>
       <div className="live-map-tools" aria-label="Map tools">
