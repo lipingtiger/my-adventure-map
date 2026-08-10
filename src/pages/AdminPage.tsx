@@ -203,6 +203,19 @@ function getStopPayloadFromStop(stop: Stop) {
   };
 }
 
+function getSortOrderAfterStop(stops: Stop[], stopId: string) {
+  const sortedStops = sortStops(stops);
+  const stopIndex = sortedStops.findIndex((stop) => stop.id === stopId);
+  const previousStop = sortedStops[stopIndex];
+  const nextStop = sortedStops[stopIndex + 1];
+
+  if (!previousStop) {
+    return sortedStops.length > 0 ? sortedStops[sortedStops.length - 1].order + 1 : 1;
+  }
+
+  return nextStop ? previousStop.order + (nextStop.order - previousStop.order) / 2 : previousStop.order + 1;
+}
+
 export function AdminPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -446,6 +459,8 @@ export function AdminPage() {
 
     const form = event.currentTarget;
     const formData = new FormData(form);
+    const insertAfterStopId = getFormString(formData, "insertAfterStopId");
+    const sortOrder = insertAfterStopId ? getSortOrderAfterStop(editableStops, insertAfterStopId) : editableStops.length + 1;
 
     setIsAddingStop(true);
     setStopMessage(null);
@@ -473,7 +488,7 @@ export function AdminPage() {
         overnight: getFormString(formData, "overnight") || null,
         overnightStatus: getFormString(formData, "overnightStatus") || "none",
         showInTimeline: true,
-        sortOrder: getFormString(formData, "sortOrder") ? Number(getFormString(formData, "sortOrder")) : undefined,
+        sortOrder,
         startPoint: getFormString(formData, "startPoint") || null,
         stateOrProvince: getFormString(formData, "stateOrProvince"),
         stopId: getFormString(formData, "stopId"),
@@ -1310,8 +1325,17 @@ export function AdminPage() {
 
             <form className="admin-panel admin-form" onSubmit={addStop}>
               <h2>Add Stop</h2>
-              <p className="admin-help">Add a route point after the currently selected stop, then adjust it as needed.</p>
-              <input name="sortOrder" type="hidden" value={(selectedStop?.order ?? editableStops.length) + 0.5} />
+              <p className="admin-help">Choose where this route point should be inserted, then adjust day labels as needed.</p>
+              <label>
+                Insert after
+                <select name="insertAfterStopId" defaultValue={selectedStop?.id ?? editableStops[editableStops.length - 1]?.id ?? ""}>
+                  {editableStops.map((stop) => (
+                    <option key={stop.id} value={stop.id}>
+                      {getStopOptionLabel(stop)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="admin-form__columns">
                 <label>
                   Stop ID
