@@ -4,6 +4,16 @@ export function sortStops(stops: Stop[]) {
   return [...stops].sort((firstStop, secondStop) => firstStop.order - secondStop.order);
 }
 
+export function getStopDayLabel(stop: Stop) {
+  if (typeof stop.dayNumber === "number") {
+    return typeof stop.dayStopOrder === "number" && stop.dayStopOrder > 1
+      ? `Day ${stop.dayNumber} · Stop ${stop.dayStopOrder}`
+      : `Day ${stop.dayNumber}`;
+  }
+
+  return stop.showInTimeline === false ? "Route start" : `Day ${stop.order}`;
+}
+
 export function getTimelineStops(journey: Journey) {
   return sortStops(journey.stops).filter((stop) => stop.showInTimeline !== false);
 }

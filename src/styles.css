@@ -1160,6 +1160,23 @@ a {
   resize: vertical;
 }
 
+.admin-checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.admin-checkbox-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-checkbox-row input {
+  width: auto;
+  min-height: 0;
+}
+
 .admin-form button,
 .admin-secondary-button {
   min-height: 42px;

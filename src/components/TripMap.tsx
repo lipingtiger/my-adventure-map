@@ -9,7 +9,7 @@ import { useOpenRouteServiceRoute } from "../hooks/useOpenRouteServiceRoute";
 import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
 import { UploadedVideo, useUploadedVideos } from "../hooks/useUploadedVideos";
 import { Journey, Photo, Stop, StopType, Video } from "../types";
-import { formatDisplayDate, getStopAttractions, getStopHikes, getStopLodging, sortStops } from "../utils/journey";
+import { formatDisplayDate, getStopAttractions, getStopDayLabel, getStopHikes, getStopLodging, sortStops } from "../utils/journey";
 
 const markerStyles: Record<StopType, { label: string; className: string }> = {
   start: { label: "S", className: "map-marker--start" },
@@ -581,11 +581,12 @@ export function TripMap({ journey }: { journey: Journey }) {
                 <Popup>
                   <div className="map-popup">
                     <span className="map-popup__order">
-                      {stop.showInTimeline === false ? "Start" : `Day ${stop.order}`}
+                      {stop.showInTimeline === false ? "Start" : getStopDayLabel(stop)}
                     </span>
                     <h3>{stop.name}</h3>
                     <p className="map-popup__meta">
-                      {formatDisplayDate(stop.date)} | {stop.city ?? stop.stateOrProvince} | {formatStopType(stop.type)}
+                      {formatDisplayDate(stop.date)} | {stop.address ?? stop.city ?? stop.stateOrProvince} |{" "}
+                      {formatStopType(stop.type)}
                     </p>
                     <p>{stop.description}</p>
                     <p className="map-popup__distance">

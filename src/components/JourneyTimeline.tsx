@@ -1,6 +1,6 @@
 import { CheckCircle2, CircleDashed } from "lucide-react";
 import { Journey } from "../types";
-import { formatShortDate, getStopAttractions, getStopHikes, getStopLodging, getTimelineStops } from "../utils/journey";
+import { formatShortDate, getStopAttractions, getStopDayLabel, getStopHikes, getStopLodging, getTimelineStops } from "../utils/journey";
 
 function listLodgingTypes(types: { type: string }[]) {
   if (!types.length) {
@@ -37,7 +37,7 @@ export function JourneyTimeline({ journey }: { journey: Journey }) {
               <details className="timeline-stop__content" open={stop.order <= 3}>
                 <summary>
                   <span className="timeline-stop__date">
-                    Day {stop.order} | <time dateTime={stop.date}>{formatShortDate(stop.date)}</time>
+                    {getStopDayLabel(stop)} | <time dateTime={stop.date}>{formatShortDate(stop.date)}</time>
                   </span>
                   <h3>{stop.name}</h3>
                   <span className="timeline-stop__route">

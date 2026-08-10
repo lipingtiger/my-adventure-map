@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { currentJourney } from "../data/journeys";
 import {
@@ -11,7 +11,7 @@ import { hasSupabaseConfig, supabase, supabaseUrl } from "../config/supabase";
 import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
 import { UploadedVideo, useUploadedVideos } from "../hooks/useUploadedVideos";
-import { sortStops } from "../utils/journey";
+import { getStopDayLabel, sortStops } from "../utils/journey";
 import type { Photo, Stop, Video } from "../types";
 
 type AdminMessage = {
@@ -55,8 +55,8 @@ function getFormString(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
 
-function getStopOptionLabel(stop: { name: string; order: number; showInTimeline?: boolean }) {
-  return stop.showInTimeline === false ? `Route start: ${stop.name}` : `Day ${stop.order}: ${stop.name}`;
+function getStopOptionLabel(stop: Stop) {
+  return `${getStopDayLabel(stop)}: ${stop.name}`;
 }
 
 function getMediaStopLabel(stop?: Stop) {
@@ -164,6 +164,7 @@ function getBoundaryCountry(country: string) {
 
 function getGeocodeQuery(formData: FormData) {
   return [
+    getFormString(formData, "address"),
     getFormString(formData, "name"),
     getFormString(formData, "city"),
     getFormString(formData, "stateOrProvince"),
@@ -171,6 +172,35 @@ function getGeocodeQuery(formData: FormData) {
   ]
     .filter(Boolean)
     .join(", ");
+}
+
+function getStopPayloadFromStop(stop: Stop) {
+  return {
+    address: stop.address ?? null,
+    city: stop.city ?? null,
+    completed: stop.completed,
+    country: stop.country,
+    date: stop.date,
+    dayNumber: stop.dayNumber ?? (stop.showInTimeline === false ? null : stop.order),
+    dayStopOrder: stop.dayStopOrder ?? null,
+    description: stop.description,
+    destination: stop.destination ?? null,
+    drivingDistanceKm: stop.drivingDistanceKm ?? null,
+    drivingDistanceNote: stop.drivingDistanceNote ?? null,
+    latitude: stop.latitude,
+    longitude: stop.longitude,
+    name: stop.name,
+    notes: stop.notes ?? null,
+    optional: stop.optional ?? false,
+    overnight: stop.overnight ?? null,
+    overnightStatus: stop.overnightStatus ?? (stop.overnight ? "overnight" : "none"),
+    showInTimeline: stop.showInTimeline !== false,
+    sortOrder: stop.order,
+    startPoint: stop.startPoint ?? null,
+    stateOrProvince: stop.stateOrProvince,
+    stopId: stop.id,
+    type: stop.type,
+  };
 }
 
 export function AdminPage() {
@@ -192,11 +222,21 @@ export function AdminPage() {
   const [isAddingVideo, setIsAddingVideo] = useState(false);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
   const [isCalculatingDistance, setIsCalculatingDistance] = useState(false);
+  const [isAddingStop, setIsAddingStop] = useState(false);
+  const [isDeletingStop, setIsDeletingStop] = useState(false);
   const [isFindingCoordinates, setIsFindingCoordinates] = useState(false);
+  const [isInitializingStops, setIsInitializingStops] = useState(false);
+  const [isMovingStop, setIsMovingStop] = useState(false);
   const [isUpdatingStop, setIsUpdatingStop] = useState(false);
   const [updatingPhotoId, setUpdatingPhotoId] = useState<string | null>(null);
   const [updatingVideoId, setUpdatingVideoId] = useState<string | null>(null);
-  const { errorMessage: stopOverridesError, journey } = useJourneyStopOverrides(currentJourney);
+  const hasRequestedStopInitializationRef = useRef(false);
+  const {
+    errorMessage: stopOverridesError,
+    isLoading: isLoadingStops,
+    journey,
+    usesDatabaseStops,
+  } = useJourneyStopOverrides(currentJourney);
   const {
     errorMessage: uploadedPhotosError,
     isLoading: isLoadingUploadedPhotos,
@@ -278,16 +318,21 @@ export function AdminPage() {
     ? [
         selectedStop.id,
         selectedStop.name,
+        selectedStop.address,
         selectedStop.city,
         selectedStop.stateOrProvince,
         selectedStop.country,
         selectedStop.date,
+        selectedStop.dayNumber,
+        selectedStop.dayStopOrder,
         selectedStop.latitude,
         selectedStop.longitude,
         selectedStop.overnight,
+        selectedStop.overnightStatus,
         selectedStop.startPoint,
         selectedStop.destination,
         selectedStop.drivingDistanceKm,
+        selectedStop.type,
       ].join("|")
     : "no-stop";
 
@@ -315,6 +360,19 @@ export function AdminPage() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session || isLoadingStops || usesDatabaseStops || hasRequestedStopInitializationRef.current) {
+      return;
+    }
+
+    if (journey.stops.length === 0) {
+      return;
+    }
+
+    hasRequestedStopInitializationRef.current = true;
+    void initializeStopsFromCurrentJourney();
+  }, [isLoadingStops, journey.stops, session, usesDatabaseStops]);
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -346,6 +404,177 @@ export function AdminPage() {
 
     await supabase.auth.signOut();
     setSession(null);
+  }
+
+  async function initializeStopsFromCurrentJourney() {
+    if (!session) {
+      return;
+    }
+
+    setIsInitializingStops(true);
+    setStopMessage(null);
+
+    const response = await fetch(getFunctionUrl("initialize-stops"), {
+      body: JSON.stringify({
+        journeyId: currentJourney.id,
+        stops: sortStops(journey.stops).map(getStopPayloadFromStop),
+      }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const data = (await response.json()) as { error?: string };
+
+    setIsInitializingStops(false);
+
+    if (!response.ok) {
+      setStopMessage({ text: data.error ?? "Stop initialization failed.", tone: "error" });
+      return;
+    }
+
+    setStopMessage({ text: "Stops are now database-managed. You can add, delete, and reorder them.", tone: "success" });
+  }
+
+  async function addStop(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session) {
+      return;
+    }
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    setIsAddingStop(true);
+    setStopMessage(null);
+
+    const response = await fetch(getFunctionUrl("add-stop"), {
+      body: JSON.stringify({
+        address: getFormString(formData, "address") || null,
+        city: getFormString(formData, "city") || null,
+        completed: false,
+        country: getFormString(formData, "country"),
+        date: getFormString(formData, "date"),
+        dayNumber: getFormString(formData, "dayNumber") ? Number(getFormString(formData, "dayNumber")) : null,
+        dayStopOrder: getFormString(formData, "dayStopOrder") ? Number(getFormString(formData, "dayStopOrder")) : null,
+        description: getFormString(formData, "description"),
+        destination: getFormString(formData, "destination") || null,
+        drivingDistanceKm: getFormString(formData, "drivingDistanceKm")
+          ? Number(getFormString(formData, "drivingDistanceKm"))
+          : null,
+        drivingDistanceNote: getFormString(formData, "drivingDistanceNote") || null,
+        journeyId: currentJourney.id,
+        latitude: Number(formData.get("latitude")),
+        longitude: Number(formData.get("longitude")),
+        name: getFormString(formData, "name"),
+        optional: false,
+        overnight: getFormString(formData, "overnight") || null,
+        overnightStatus: getFormString(formData, "overnightStatus") || "none",
+        showInTimeline: true,
+        sortOrder: getFormString(formData, "sortOrder") ? Number(getFormString(formData, "sortOrder")) : undefined,
+        startPoint: getFormString(formData, "startPoint") || null,
+        stateOrProvince: getFormString(formData, "stateOrProvince"),
+        stopId: getFormString(formData, "stopId"),
+        type: getFormString(formData, "type") || "city",
+      }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const data = (await response.json()) as { error?: string; stop?: { stop_id?: string } };
+
+    setIsAddingStop(false);
+
+    if (!response.ok) {
+      setStopMessage({ text: data.error ?? "Stop add failed.", tone: "error" });
+      return;
+    }
+
+    form.reset();
+    if (data.stop?.stop_id) {
+      setSelectedStopId(data.stop.stop_id);
+    }
+    setStopMessage({ text: "Stop added. The map and timeline will refresh.", tone: "success" });
+  }
+
+  async function moveStop(direction: "down" | "up") {
+    if (!session || !selectedStop) {
+      return;
+    }
+
+    setIsMovingStop(true);
+    setStopMessage(null);
+
+    const response = await fetch(getFunctionUrl("move-stop"), {
+      body: JSON.stringify({
+        direction,
+        journeyId: currentJourney.id,
+        stopId: selectedStop.id,
+      }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const data = (await response.json()) as { error?: string };
+
+    setIsMovingStop(false);
+
+    if (!response.ok) {
+      setStopMessage({ text: data.error ?? "Stop move failed.", tone: "error" });
+      return;
+    }
+
+    setStopMessage({ text: "Stop moved. The route order will refresh.", tone: "success" });
+  }
+
+  async function deleteSelectedStop() {
+    if (!session || !selectedStop) {
+      return;
+    }
+
+    const stopIndex = editableStops.findIndex((stop) => stop.id === selectedStop.id);
+    const nextStop = editableStops[stopIndex + 1] ?? null;
+    const shouldDelete = window.confirm(
+      `Delete "${selectedStop.name}"? Photos and videos on this stop will move to ${
+        nextStop ? `"${nextStop.name}"` : "No specific stop"
+      }.`,
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setIsDeletingStop(true);
+    setStopMessage(null);
+
+    const response = await fetch(getFunctionUrl("delete-stop"), {
+      body: JSON.stringify({
+        journeyId: currentJourney.id,
+        stopId: selectedStop.id,
+      }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const data = (await response.json()) as { error?: string };
+
+    setIsDeletingStop(false);
+
+    if (!response.ok) {
+      setStopMessage({ text: data.error ?? "Stop delete failed.", tone: "error" });
+      return;
+    }
+
+    setSelectedStopId(nextStop?.id ?? editableStops[Math.max(0, stopIndex - 1)]?.id ?? "");
+    setStopMessage({ text: "Stop deleted. Its photos and videos were moved to the next stop.", tone: "success" });
   }
 
   async function uploadPhoto(event: FormEvent<HTMLFormElement>) {
@@ -480,9 +709,13 @@ export function AdminPage() {
 
     const response = await fetch(getFunctionUrl("update-stop"), {
       body: JSON.stringify({
+        address: String(formData.get("address") ?? "").trim() || null,
         city: String(formData.get("city") ?? "").trim() || null,
+        completed: formData.get("completed") === "on",
         country: String(formData.get("country") ?? "").trim(),
         date: String(formData.get("date") ?? "").trim(),
+        dayNumber: String(formData.get("dayNumber") ?? "").trim() ? Number(formData.get("dayNumber")) : null,
+        dayStopOrder: String(formData.get("dayStopOrder") ?? "").trim() ? Number(formData.get("dayStopOrder")) : null,
         description: String(formData.get("description") ?? "").trim(),
         destination: String(formData.get("destination") ?? "").trim() || null,
         drivingDistanceKm: drivingDistanceKm ? Number(drivingDistanceKm) : null,
@@ -491,10 +724,16 @@ export function AdminPage() {
         latitude: Number(formData.get("latitude")),
         longitude: Number(formData.get("longitude")),
         name: String(formData.get("name") ?? "").trim(),
+        optional: formData.get("optional") === "on",
         overnight: String(formData.get("overnight") ?? "").trim() || null,
+        overnightStatus: String(formData.get("overnightStatus") ?? "").trim() || "none",
+        originalStopId: String(formData.get("originalStopId") ?? "").trim(),
+        showInTimeline: formData.get("showInTimeline") === "on",
+        sortOrder: Number(formData.get("sortOrder")),
         startPoint: String(formData.get("startPoint") ?? "").trim() || null,
         stateOrProvince: String(formData.get("stateOrProvince") ?? "").trim(),
         stopId: String(formData.get("stopId") ?? "").trim(),
+        type: String(formData.get("type") ?? "").trim() || "city",
       }),
       headers: {
         Authorization: `Bearer ${session.access_token}`,
@@ -511,6 +750,10 @@ export function AdminPage() {
       return;
     }
 
+    const updatedStopId = String(formData.get("stopId") ?? "").trim();
+    if (updatedStopId) {
+      setSelectedStopId(updatedStopId);
+    }
     setStopMessage({ text: "Stop updated. The map and timeline will refresh.", tone: "success" });
   }
 
@@ -898,20 +1141,29 @@ export function AdminPage() {
           <div className="admin-grid">
             <form className="admin-panel admin-form admin-panel--wide" key={stopFormKey} onSubmit={updateStop}>
               <h2>Update Stop</h2>
-              <p className="admin-help">Change a day or stop when the trip route shifts.</p>
+              <p className="admin-help">
+                Change, reorder, or delete stops as the trip route shifts.
+                {isInitializingStops ? " Initializing database-managed stops..." : ""}
+              </p>
               <label>
                 Stop
-                <select name="stopId" onChange={(event) => setSelectedStopId(event.target.value)} value={selectedStop?.id ?? ""}>
+                <select name="selectedStopId" onChange={(event) => setSelectedStopId(event.target.value)} value={selectedStop?.id ?? ""}>
                   {editableStops.map((stop) => (
                     <option key={stop.id} value={stop.id}>
-                      {stop.showInTimeline === false ? "Route start" : `Day ${stop.order}`}: {stop.name}
+                      {getStopOptionLabel(stop)}
                     </option>
                   ))}
                 </select>
               </label>
               {selectedStop ? (
                 <>
+                  <input name="originalStopId" type="hidden" value={selectedStop.id} />
+                  <input name="sortOrder" type="hidden" value={selectedStop.order} />
                   <div className="admin-form__columns">
+                    <label>
+                      Stop ID
+                      <input name="stopId" required defaultValue={selectedStop.id} placeholder="day-03-badlands-overlook" />
+                    </label>
                     <label>
                       Name
                       <input name="name" required defaultValue={selectedStop.name} placeholder="Chicago" />
@@ -921,6 +1173,32 @@ export function AdminPage() {
                       <input name="date" required type="date" defaultValue={selectedStop.date} />
                     </label>
                   </div>
+                  <div className="admin-form__columns">
+                    <label>
+                      Day number
+                      <input name="dayNumber" min="0" step="1" type="number" defaultValue={selectedStop.dayNumber ?? ""} />
+                    </label>
+                    <label>
+                      Stop order in day
+                      <input name="dayStopOrder" min="0" step="1" type="number" defaultValue={selectedStop.dayStopOrder ?? ""} />
+                    </label>
+                    <label>
+                      Type
+                      <select name="type" defaultValue={selectedStop.type}>
+                        <option value="start">Start</option>
+                        <option value="city">City</option>
+                        <option value="scenic-stop">Scenic stop</option>
+                        <option value="national-park">National park</option>
+                        <option value="hiking">Hiking</option>
+                        <option value="overnight">Overnight</option>
+                        <option value="destination">Destination</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label>
+                    Address
+                    <input name="address" defaultValue={selectedStop.address ?? ""} placeholder="Street address, campground, hotel, or park address" />
+                  </label>
                   <div className="admin-form__columns">
                     <label>
                       City
@@ -963,6 +1241,14 @@ export function AdminPage() {
                       <input name="overnight" defaultValue={selectedStop.overnight ?? ""} />
                     </label>
                     <label>
+                      Overnight status
+                      <select name="overnightStatus" defaultValue={selectedStop.overnightStatus ?? (selectedStop.overnight ? "overnight" : "none")}>
+                        <option value="none">None</option>
+                        <option value="pass">Pass</option>
+                        <option value="overnight">Overnight</option>
+                      </select>
+                    </label>
+                    <label>
                       Distance km
                       <input name="drivingDistanceKm" type="number" min="0" step="any" defaultValue={selectedStop.drivingDistanceKm ?? ""} />
                     </label>
@@ -989,12 +1275,151 @@ export function AdminPage() {
                       <input name="destination" defaultValue={selectedStop.destination ?? ""} />
                     </label>
                   </div>
+                  <div className="admin-checkbox-row">
+                    <label>
+                      <input name="showInTimeline" type="checkbox" defaultChecked={selectedStop.showInTimeline !== false} />
+                      Show in timeline
+                    </label>
+                    <label>
+                      <input name="completed" type="checkbox" defaultChecked={selectedStop.completed} />
+                      Completed
+                    </label>
+                    <label>
+                      <input name="optional" type="checkbox" defaultChecked={selectedStop.optional ?? false} />
+                      Optional
+                    </label>
+                  </div>
+                  <div className="admin-photo-actions">
+                    <button className="admin-secondary-button" disabled={isMovingStop} onClick={() => void moveStop("up")} type="button">
+                      Move up
+                    </button>
+                    <button className="admin-secondary-button" disabled={isMovingStop} onClick={() => void moveStop("down")} type="button">
+                      Move down
+                    </button>
+                    <button className="admin-danger-button" disabled={isDeletingStop} onClick={() => void deleteSelectedStop()} type="button">
+                      {isDeletingStop ? "Deleting..." : "Delete stop"}
+                    </button>
+                  </div>
                   <button disabled={isUpdatingStop} type="submit">
                     {isUpdatingStop ? "Saving..." : "Save stop changes"}
                   </button>
                   {stopMessage ? <p className={`admin-message admin-message--${stopMessage.tone}`}>{stopMessage.text}</p> : null}
                 </>
               ) : null}
+            </form>
+
+            <form className="admin-panel admin-form" onSubmit={addStop}>
+              <h2>Add Stop</h2>
+              <p className="admin-help">Add a route point after the currently selected stop, then adjust it as needed.</p>
+              <input name="sortOrder" type="hidden" value={(selectedStop?.order ?? editableStops.length) + 0.5} />
+              <div className="admin-form__columns">
+                <label>
+                  Stop ID
+                  <input name="stopId" placeholder="day-03-stop-2" required />
+                </label>
+                <label>
+                  Name
+                  <input name="name" placeholder="Scenic overlook" required />
+                </label>
+              </div>
+              <div className="admin-form__columns">
+                <label>
+                  Day number
+                  <input name="dayNumber" min="0" step="1" type="number" defaultValue={selectedStop?.dayNumber ?? ""} />
+                </label>
+                <label>
+                  Stop order in day
+                  <input name="dayStopOrder" min="0" step="1" type="number" defaultValue="" />
+                </label>
+                <label>
+                  Type
+                  <select name="type" defaultValue="scenic-stop">
+                    <option value="start">Start</option>
+                    <option value="city">City</option>
+                    <option value="scenic-stop">Scenic stop</option>
+                    <option value="national-park">National park</option>
+                    <option value="hiking">Hiking</option>
+                    <option value="overnight">Overnight</option>
+                    <option value="destination">Destination</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                Address
+                <input name="address" placeholder="Street address, campground, hotel, or park address" />
+              </label>
+              <div className="admin-form__columns">
+                <label>
+                  City
+                  <input name="city" placeholder="Optional" />
+                </label>
+                <label>
+                  State / Province
+                  <input name="stateOrProvince" required defaultValue={selectedStop?.stateOrProvince ?? ""} />
+                </label>
+                <label>
+                  Country
+                  <input name="country" required defaultValue={selectedStop?.country ?? ""} />
+                </label>
+              </div>
+              <div className="admin-form__columns">
+                <label>
+                  Date
+                  <input name="date" required type="date" defaultValue={selectedStop?.date ?? currentJourney.startDate} />
+                </label>
+                <label>
+                  Latitude
+                  <input name="latitude" required type="number" step="any" defaultValue={selectedStop?.latitude ?? ""} />
+                </label>
+                <label>
+                  Longitude
+                  <input name="longitude" required type="number" step="any" defaultValue={selectedStop?.longitude ?? ""} />
+                </label>
+              </div>
+              <button className="admin-secondary-button" disabled={isFindingCoordinates} onClick={findStopCoordinates} type="button">
+                {isFindingCoordinates ? "Finding coordinates..." : "Find coordinates"}
+              </button>
+              <label>
+                Description
+                <textarea name="description" required rows={3} placeholder="What happens at this stop?" />
+              </label>
+              <div className="admin-form__columns">
+                <label>
+                  Overnight status
+                  <select name="overnightStatus" defaultValue="pass">
+                    <option value="none">None</option>
+                    <option value="pass">Pass</option>
+                    <option value="overnight">Overnight</option>
+                  </select>
+                </label>
+                <label>
+                  Overnight
+                  <input name="overnight" placeholder="Optional" />
+                </label>
+              </div>
+              <div className="admin-form__columns">
+                <label>
+                  Start point
+                  <input name="startPoint" defaultValue={selectedStop?.name ?? ""} />
+                </label>
+                <label>
+                  Destination
+                  <input name="destination" />
+                </label>
+              </div>
+              <div className="admin-form__columns">
+                <label>
+                  Distance km
+                  <input name="drivingDistanceKm" min="0" step="any" type="number" />
+                </label>
+                <label>
+                  Distance note
+                  <input name="drivingDistanceNote" />
+                </label>
+              </div>
+              <button disabled={isAddingStop} type="submit">
+                {isAddingStop ? "Adding..." : "Add stop"}
+              </button>
             </form>
 
             <form className="admin-panel admin-form" onSubmit={uploadPhoto}>

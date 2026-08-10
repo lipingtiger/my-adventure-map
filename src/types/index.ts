@@ -10,12 +10,16 @@ export type StopType =
   | "destination";
 
 export type LodgingType = "motel" | "hostel" | "campground" | "lodge";
+export type OvernightStatus = "none" | "pass" | "overnight";
 
 export interface Stop {
   id: string;
   journeyId: string;
   order: number;
+  dayNumber?: number;
+  dayStopOrder?: number;
   name: string;
+  address?: string;
   city?: string;
   stateOrProvince: string;
   country: string;
@@ -28,6 +32,7 @@ export interface Stop {
   drivingDistanceKm?: number;
   drivingDistanceNote?: string;
   overnight?: string;
+  overnightStatus?: OvernightStatus;
   notes?: string[];
   startPoint?: string;
   destination?: string;
