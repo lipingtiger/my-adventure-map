@@ -1,10 +1,13 @@
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 mkdirSync("dist/.openai", { recursive: true });
+mkdirSync("dist/client", { recursive: true });
 mkdirSync("dist/server", { recursive: true });
 
 copyFileSync(".openai/hosting.json", "dist/.openai/hosting.json");
+copyFileSync("dist/index.html", "dist/client/index.html");
+cpSync("dist/assets", "dist/client/assets", { recursive: true });
 
 function escapeInlineScript(value) {
   return value.replaceAll("</script", "<\\/script");
