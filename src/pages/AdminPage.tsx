@@ -1543,6 +1543,7 @@ export function AdminPage() {
               <button disabled={isAddingStop} type="submit">
                 {isAddingStop ? "Adding..." : "Add stop"}
               </button>
+              {stopMessage ? <p className={`admin-message admin-message--${stopMessage.tone}`}>{stopMessage.text}</p> : null}
             </form>
 
             <form className="admin-panel admin-form" onSubmit={uploadPhoto}>
