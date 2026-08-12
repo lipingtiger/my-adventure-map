@@ -216,6 +216,30 @@ function getSortOrderAfterStop(stops: Stop[], stopId: string) {
   return nextStop ? previousStop.order + (nextStop.order - previousStop.order) / 2 : previousStop.order + 1;
 }
 
+function createUniqueStopId(stops: Stop[], dayNumber: number | null, name: string) {
+  const slug = name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "stop";
+  const prefix = dayNumber === null ? "stop" : `day-${String(dayNumber).padStart(2, "0")}`;
+  const baseId = `${prefix}-${slug}`;
+  const existingIds = new Set(stops.map((stop) => stop.id));
+
+  if (!existingIds.has(baseId)) {
+    return baseId;
+  }
+
+  let suffix = 2;
+
+  while (existingIds.has(`${baseId}-${suffix}`)) {
+    suffix += 1;
+  }
+
+  return `${baseId}-${suffix}`;
+}
+
 export function AdminPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -227,6 +251,7 @@ export function AdminPage() {
   const [stopMessage, setStopMessage] = useState<AdminMessage | null>(null);
   const [managePhotoMessage, setManagePhotoMessage] = useState<AdminMessage | null>(null);
   const [selectedStopId, setSelectedStopId] = useState(currentJourney.stops.find((stop) => stop.showInTimeline !== false)?.id ?? currentJourney.stops[0]?.id ?? "");
+  const [insertAfterStopId, setInsertAfterStopId] = useState(currentJourney.stops.find((stop) => stop.showInTimeline !== false)?.id ?? currentJourney.stops[0]?.id ?? "");
   const [selectedMediaStopId, setSelectedMediaStopId] = useState(currentJourney.stops[0]?.id ?? UNASSIGNED_MEDIA_STOP_ID);
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
@@ -459,8 +484,16 @@ export function AdminPage() {
 
     const form = event.currentTarget;
     const formData = new FormData(form);
-    const insertAfterStopId = getFormString(formData, "insertAfterStopId");
-    const sortOrder = insertAfterStopId ? getSortOrderAfterStop(editableStops, insertAfterStopId) : editableStops.length + 1;
+    const requestedInsertAfterStopId = getFormString(formData, "insertAfterStopId");
+    const sortOrder = requestedInsertAfterStopId ? getSortOrderAfterStop(editableStops, requestedInsertAfterStopId) : editableStops.length + 1;
+    const dayNumber = getFormString(formData, "dayNumber") ? Number(getFormString(formData, "dayNumber")) : null;
+    const requestedStopId = getFormString(formData, "stopId");
+    const stopId = requestedStopId || createUniqueStopId(editableStops, dayNumber, getFormString(formData, "name"));
+
+    if (editableStops.some((stop) => stop.id === stopId)) {
+      setStopMessage({ text: `Stop ID “${stopId}” already exists. Leave it blank to generate a unique ID, or enter a different one.`, tone: "error" });
+      return;
+    }
 
     setIsAddingStop(true);
     setStopMessage(null);
@@ -472,7 +505,7 @@ export function AdminPage() {
         completed: false,
         country: getFormString(formData, "country"),
         date: getFormString(formData, "date"),
-        dayNumber: getFormString(formData, "dayNumber") ? Number(getFormString(formData, "dayNumber")) : null,
+        dayNumber,
         dayStopOrder: getFormString(formData, "dayStopOrder") ? Number(getFormString(formData, "dayStopOrder")) : null,
         description: getFormString(formData, "description"),
         destination: getFormString(formData, "destination") || null,
@@ -491,7 +524,7 @@ export function AdminPage() {
         sortOrder,
         startPoint: getFormString(formData, "startPoint") || null,
         stateOrProvince: getFormString(formData, "stateOrProvince"),
-        stopId: getFormString(formData, "stopId"),
+        stopId,
         type: getFormString(formData, "type") || "city",
       }),
       headers: {
@@ -862,7 +895,10 @@ export function AdminPage() {
     const formData = new FormData(form);
     const stopId = getFormString(formData, "stopId");
     const stopIndex = editableStops.findIndex((stop) => stop.id === stopId);
-    const previousStop = stopIndex > 0 ? editableStops[stopIndex - 1] : null;
+    const insertAfterStopId = getFormString(formData, "insertAfterStopId");
+    const previousStop = stopIndex > 0
+      ? editableStops[stopIndex - 1]
+      : editableStops.find((stop) => stop.id === insertAfterStopId) ?? null;
 
     if (!previousStop) {
       setStopMessage({ text: "This stop does not have a previous stop.", tone: "error" });
@@ -879,7 +915,18 @@ export function AdminPage() {
 
     const distanceInput = form.elements.namedItem("drivingDistanceKm");
     const noteInput = form.elements.namedItem("drivingDistanceNote");
+    const startPointInput = form.elements.namedItem("startPoint");
+    const destinationInput = form.elements.namedItem("destination");
+    const name = getFormString(formData, "name");
     const currentCoordinates = { latitude, longitude };
+
+    if (startPointInput instanceof HTMLInputElement) {
+      startPointInput.value = previousStop.name;
+    }
+
+    if (destinationInput instanceof HTMLInputElement && name) {
+      destinationInput.value = name;
+    }
 
     setIsCalculatingDistance(true);
     setStopMessage(null);
@@ -927,7 +974,7 @@ export function AdminPage() {
       }
 
       setStopMessage({
-        text: `Driving distance calculated from ${previousStop.name}: ${distanceKm} km. Save stop changes to keep it.`,
+        text: `Driving distance calculated from ${previousStop.name} to ${name || "this stop"}: ${distanceKm} km. Save the stop to keep it.`,
         tone: "success",
       });
     } catch (error) {
@@ -938,7 +985,7 @@ export function AdminPage() {
       }
 
       setStopMessage({
-        text: `Used straight-line distance from ${previousStop.name}: ${distanceKm} km. Save stop changes to keep it.`,
+        text: `Used straight-line distance from ${previousStop.name} to ${name || "this stop"}: ${distanceKm} km. Save the stop to keep it.`,
         tone: "success",
       });
     } finally {
@@ -1323,12 +1370,12 @@ export function AdminPage() {
               ) : null}
             </form>
 
-            <form className="admin-panel admin-form" onSubmit={addStop}>
+            <form className="admin-panel admin-form" key={insertAfterStopId} onSubmit={addStop}>
               <h2>Add Stop</h2>
               <p className="admin-help">Choose where this route point should be inserted, then adjust day labels as needed.</p>
               <label>
                 Insert after
-                <select name="insertAfterStopId" defaultValue={selectedStop?.id ?? editableStops[editableStops.length - 1]?.id ?? ""}>
+                <select name="insertAfterStopId" onChange={(event) => setInsertAfterStopId(event.target.value)} value={insertAfterStopId}>
                   {editableStops.map((stop) => (
                     <option key={stop.id} value={stop.id}>
                       {getStopOptionLabel(stop)}
@@ -1339,17 +1386,33 @@ export function AdminPage() {
               <div className="admin-form__columns">
                 <label>
                   Stop ID
-                  <input name="stopId" placeholder="day-03-stop-2" required />
+                  <input name="stopId" placeholder="Optional — generated from day and name" />
                 </label>
                 <label>
                   Name
-                  <input name="name" placeholder="Scenic overlook" required />
+                  <input
+                    name="name"
+                    onInput={(event) => {
+                      const destinationInput = event.currentTarget.form?.elements.namedItem("destination");
+
+                      if (destinationInput instanceof HTMLInputElement) {
+                        destinationInput.value = event.currentTarget.value;
+                      }
+                    }}
+                    placeholder="Scenic overlook"
+                    required
+                  />
                 </label>
               </div>
               <div className="admin-form__columns">
                 <label>
                   Day number
-                  <input name="dayNumber" min="0" step="1" type="number" defaultValue={selectedStop?.dayNumber ?? ""} />
+                  <input name="dayNumber" min="0" step="1" type="number" defaultValue={(() => {
+                    const stopIndex = editableStops.findIndex((stop) => stop.id === insertAfterStopId);
+                    const previousStop = editableStops[stopIndex];
+                    const nextStop = editableStops[stopIndex + 1];
+                    return nextStop?.dayNumber ?? (typeof previousStop?.dayNumber === "number" ? previousStop.dayNumber + 1 : "");
+                  })()} />
                 </label>
                 <label>
                   Stop order in day
@@ -1389,7 +1452,10 @@ export function AdminPage() {
               <div className="admin-form__columns">
                 <label>
                   Date
-                  <input name="date" required type="date" defaultValue={selectedStop?.date ?? currentJourney.startDate} />
+                  <input name="date" required type="date" defaultValue={(() => {
+                    const stopIndex = editableStops.findIndex((stop) => stop.id === insertAfterStopId);
+                    return editableStops[stopIndex + 1]?.date ?? editableStops[stopIndex]?.date ?? currentJourney.startDate;
+                  })()} />
                 </label>
                 <label>
                   Latitude
@@ -1424,11 +1490,11 @@ export function AdminPage() {
               <div className="admin-form__columns">
                 <label>
                   Start point
-                  <input name="startPoint" defaultValue={selectedStop?.name ?? ""} />
+                  <input name="startPoint" defaultValue={editableStops.find((stop) => stop.id === insertAfterStopId)?.name ?? ""} />
                 </label>
                 <label>
                   Destination
-                  <input name="destination" />
+                  <input name="destination" placeholder="Filled from the new stop name" />
                 </label>
               </div>
               <div className="admin-form__columns">
@@ -1441,6 +1507,14 @@ export function AdminPage() {
                   <input name="drivingDistanceNote" />
                 </label>
               </div>
+              <button
+                className="admin-secondary-button"
+                disabled={isCalculatingDistance}
+                onClick={calculateDistanceFromPreviousStop}
+                type="button"
+              >
+                {isCalculatingDistance ? "Calculating distance..." : "Calculate distance from start to destination"}
+              </button>
               <button disabled={isAddingStop} type="submit">
                 {isAddingStop ? "Adding..." : "Add stop"}
               </button>

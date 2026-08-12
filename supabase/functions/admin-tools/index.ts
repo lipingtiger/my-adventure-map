@@ -468,6 +468,10 @@ async function addStop(req: Request, context: AdminContext) {
     .single();
 
   if (error) {
+    if (error.code === "23505") {
+      return jsonResponse({ error: `Stop ID “${result.payload.stop_id}” already exists. Use a unique Stop ID.` }, 409);
+    }
+
     return jsonResponse({ error: error.message }, 500);
   }
 
