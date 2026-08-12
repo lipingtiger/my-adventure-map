@@ -44,7 +44,28 @@ type OpenRouteServiceDirectionsResponse = {
 const UNASSIGNED_MEDIA_STOP_ID = "__unassigned__";
 
 function getFunctionUrl(action: string) {
+  if (typeof window !== "undefined" && window.location.hostname.endsWith("chatgpt.site")) {
+    return `/api/admin-tools/${action}`;
+  }
+
   return `${supabaseUrl.replace(/\/$/, "")}/functions/v1/admin-tools/${action}`;
+}
+
+async function fetchAdminTool(action: string, init: RequestInit) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
+
+  try {
+    return await fetch(getFunctionUrl(action), { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The admin request timed out after 20 seconds. Please try again.");
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function toIsoDateTime(value: string) {
@@ -498,8 +519,9 @@ export function AdminPage() {
     setIsAddingStop(true);
     setStopMessage(null);
 
-    const response = await fetch(getFunctionUrl("add-stop"), {
-      body: JSON.stringify({
+    try {
+      const response = await fetchAdminTool("add-stop", {
+        body: JSON.stringify({
         address: getFormString(formData, "address") || null,
         city: getFormString(formData, "city") || null,
         completed: false,
@@ -527,26 +549,29 @@ export function AdminPage() {
         stopId,
         type: getFormString(formData, "type") || "city",
       }),
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-      method: "POST",
-    });
-    const data = (await response.json()) as { error?: string; stop?: { stop_id?: string } };
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+      const data = (await response.json()) as { error?: string; stop?: { stop_id?: string } };
 
-    setIsAddingStop(false);
+      if (!response.ok) {
+        setStopMessage({ text: data.error ?? `Stop add failed (${response.status}).`, tone: "error" });
+        return;
+      }
 
-    if (!response.ok) {
-      setStopMessage({ text: data.error ?? "Stop add failed.", tone: "error" });
-      return;
+      form.reset();
+      if (data.stop?.stop_id) {
+        setSelectedStopId(data.stop.stop_id);
+      }
+      setStopMessage({ text: "Stop added. The map and timeline will refresh.", tone: "success" });
+    } catch (error) {
+      setStopMessage({ text: error instanceof Error ? error.message : "Unable to reach the admin service.", tone: "error" });
+    } finally {
+      setIsAddingStop(false);
     }
-
-    form.reset();
-    if (data.stop?.stop_id) {
-      setSelectedStopId(data.stop.stop_id);
-    }
-    setStopMessage({ text: "Stop added. The map and timeline will refresh.", tone: "success" });
   }
 
   async function moveStop(direction: "down" | "up") {

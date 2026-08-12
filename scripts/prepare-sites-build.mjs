@@ -138,6 +138,34 @@ async function fetchLiveLocationHistory(request, env) {
   );
 }
 
+async function proxyAdminTools(request, env) {
+  if (!env.VITE_SUPABASE_URL) {
+    return Response.json({ error: "Supabase environment variables are not configured" }, { status: 500 });
+  }
+
+  const url = new URL(request.url);
+  const action = url.pathname.slice("/api/admin-tools/".length);
+
+  if (!action || action.includes("/")) {
+    return Response.json({ error: "Invalid admin action" }, { status: 400 });
+  }
+
+  const headers = new Headers(request.headers);
+  headers.delete("host");
+  headers.delete("content-length");
+
+  if (env.VITE_SUPABASE_ANON_KEY) {
+    headers.set("apikey", env.VITE_SUPABASE_ANON_KEY);
+  }
+
+  return fetch(env.VITE_SUPABASE_URL.replace(/\\\/$/, "") + "/functions/v1/admin-tools/" + action, {
+    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+    duplex: "half",
+    headers,
+    method: request.method,
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -148,6 +176,10 @@ export default {
 
     if (url.pathname === "/api/live-location-history") {
       return fetchLiveLocationHistory(request, env);
+    }
+
+    if (url.pathname.startsWith("/api/admin-tools/")) {
+      return proxyAdminTools(request, env);
     }
 
     const response = await env.ASSETS.fetch(request);
