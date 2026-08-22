@@ -242,12 +242,14 @@ function formatStopType(type: string) {
     .join(" ");
 }
 
-function createStopIcon(stop: Stop, hasMedia: boolean) {
+function createStopIcon(stop: Stop, hasMedia: boolean, isHighlighted: boolean) {
   const markerStyle = markerStyles[stop.type];
   const mediaBadge = hasMedia ? '<i class="map-marker__media" aria-hidden="true"></i>' : "";
 
   return L.divIcon({
-    className: `map-marker ${markerStyle.className}${hasMedia ? " map-marker--has-media" : ""}`,
+    className: `map-marker ${markerStyle.className}${hasMedia ? " map-marker--has-media" : ""}${
+      isHighlighted ? " map-marker--journey-highlight" : ""
+    }`,
     html: `<span>${markerStyle.label}</span>${mediaBadge}`,
     iconSize: [34, 34],
     iconAnchor: [17, 17],
@@ -416,7 +418,12 @@ function StopMediaGallery({ media }: { media?: StopMedia }) {
 export function TripMap({ journey }: { journey: Journey }) {
   const [fitRequestId, setFitRequestId] = useState(0);
   const [showLiveHistory, setShowLiveHistory] = useState(false);
+  const [highlightedStopIndex, setHighlightedStopIndex] = useState(0);
   const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
+  const animatedStops = useMemo(
+    () => orderedStops.filter((stop) => stop.showInTimeline !== false),
+    [orderedStops],
+  );
   const { errorMessage: uploadedPhotoError, photos: uploadedPhotos } = useUploadedPhotos(journey.id);
   const { errorMessage: uploadedVideoError, videos: uploadedVideos } = useUploadedVideos(journey.id);
   const { errorMessage, routePositions, routeSegments, status, summary } = useOpenRouteServiceRoute(orderedStops);
@@ -467,6 +474,22 @@ export function TripMap({ journey }: { journey: Journey }) {
     loading: "Loading location history...",
     stale: "Location history is stale",
   };
+
+  useEffect(() => {
+    setHighlightedStopIndex(0);
+
+    if (journey.status !== "completed" || animatedStops.length === 0) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setHighlightedStopIndex((currentIndex) => (currentIndex + 1) % animatedStops.length);
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [animatedStops.length, journey.status]);
+
+  const highlightedStopId = journey.status === "completed" ? animatedStops[highlightedStopIndex]?.id : undefined;
 
   return (
     <section className="map-panel" aria-labelledby="map-title">
@@ -577,7 +600,11 @@ export function TripMap({ journey }: { journey: Journey }) {
             const hasMedia = Boolean(stopMedia && (stopMedia.photos.length > 0 || stopMedia.videos.length > 0));
 
             return (
-              <Marker key={stop.id} icon={createStopIcon(stop, hasMedia)} position={[stop.latitude, stop.longitude]}>
+              <Marker
+                key={stop.id}
+                icon={createStopIcon(stop, hasMedia, stop.id === highlightedStopId)}
+                position={[stop.latitude, stop.longitude]}
+              >
                 <Popup>
                   <div className="map-popup">
                     <span className="map-popup__order">

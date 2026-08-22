@@ -12,7 +12,7 @@ import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
 import { UploadedVideo, useUploadedVideos } from "../hooks/useUploadedVideos";
 import { getStopDayLabel, sortStops } from "../utils/journey";
-import type { Photo, Stop, Video } from "../types";
+import type { JourneyStatus, Photo, Stop, Video } from "../types";
 
 type AdminMessage = {
   tone: "error" | "success";
@@ -270,6 +270,7 @@ export function AdminPage() {
   const [videoMessage, setVideoMessage] = useState<AdminMessage | null>(null);
   const [historyMessage, setHistoryMessage] = useState<AdminMessage | null>(null);
   const [stopMessage, setStopMessage] = useState<AdminMessage | null>(null);
+  const [journeyStatusMessage, setJourneyStatusMessage] = useState<AdminMessage | null>(null);
   const [managePhotoMessage, setManagePhotoMessage] = useState<AdminMessage | null>(null);
   const [selectedStopId, setSelectedStopId] = useState(currentJourney.stops.find((stop) => stop.showInTimeline !== false)?.id ?? currentJourney.stops[0]?.id ?? "");
   const [insertAfterStopId, setInsertAfterStopId] = useState(currentJourney.stops.find((stop) => stop.showInTimeline !== false)?.id ?? currentJourney.stops[0]?.id ?? "");
@@ -287,6 +288,7 @@ export function AdminPage() {
   const [isInitializingStops, setIsInitializingStops] = useState(false);
   const [isMovingStop, setIsMovingStop] = useState(false);
   const [isUpdatingStop, setIsUpdatingStop] = useState(false);
+  const [isUpdatingJourneyStatus, setIsUpdatingJourneyStatus] = useState(false);
   const [updatingPhotoId, setUpdatingPhotoId] = useState<string | null>(null);
   const [updatingVideoId, setUpdatingVideoId] = useState<string | null>(null);
   const hasRequestedStopInitializationRef = useRef(false);
@@ -463,6 +465,45 @@ export function AdminPage() {
 
     await supabase.auth.signOut();
     setSession(null);
+  }
+
+  async function updateJourneyStatus(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session) {
+      return;
+    }
+
+    const formData = new FormData(event.currentTarget);
+    const status = getFormString(formData, "status") as JourneyStatus;
+    setIsUpdatingJourneyStatus(true);
+    setJourneyStatusMessage(null);
+
+    try {
+      const response = await fetchAdminTool("update-journey-settings", {
+        body: JSON.stringify({ journeyId: currentJourney.id, status }),
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+      const data = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        setJourneyStatusMessage({ text: data.error ?? "Journey status update failed.", tone: "error" });
+        return;
+      }
+
+      setJourneyStatusMessage({ text: `Journey status changed to ${status}.`, tone: "success" });
+    } catch (error) {
+      setJourneyStatusMessage({
+        text: error instanceof Error ? error.message : "Journey status update failed.",
+        tone: "error",
+      });
+    } finally {
+      setIsUpdatingJourneyStatus(false);
+    }
   }
 
   async function initializeStopsFromCurrentJourney() {
@@ -1226,6 +1267,28 @@ export function AdminPage() {
           </form>
         ) : (
           <div className="admin-grid">
+            <form className="admin-panel admin-form" onSubmit={updateJourneyStatus}>
+              <h2>Journey Status</h2>
+              <p className="admin-help">
+                This changes the public status label only. It does not start or stop OwnTracks location sharing.
+              </p>
+              <label>
+                Status
+                <select name="status" key={journey.status} defaultValue={journey.status}>
+                  <option value="planning">Planning</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </label>
+              <button disabled={isUpdatingJourneyStatus} type="submit">
+                {isUpdatingJourneyStatus ? "Saving..." : "Save journey status"}
+              </button>
+              {journeyStatusMessage ? (
+                <p className={`admin-message admin-message--${journeyStatusMessage.tone}`}>
+                  {journeyStatusMessage.text}
+                </p>
+              ) : null}
+            </form>
             <form className="admin-panel admin-form admin-panel--wide" key={stopFormKey} onSubmit={updateStop}>
               <h2>Update Stop</h2>
               <p className="admin-help">

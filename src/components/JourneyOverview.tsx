@@ -1,9 +1,9 @@
 import { CalendarDays, Flag, MapPin, Milestone } from "lucide-react";
 import { Journey } from "../types";
-import { formatDateRange, getTimelineStops } from "../utils/journey";
+import { formatDateRange, getJourneyDurationDays } from "../utils/journey";
 
 export function JourneyOverview({ journey }: { journey: Journey }) {
-  const timelineStops = getTimelineStops(journey);
+  const durationDays = getJourneyDurationDays(journey);
   const overviewItems = [
     {
       icon: MapPin,
@@ -23,7 +23,7 @@ export function JourneyOverview({ journey }: { journey: Journey }) {
     {
       icon: Milestone,
       label: "Overview",
-      value: `${journey.totalDistanceLabel} | ${timelineStops.length} travel days`,
+      value: `${journey.totalDistanceLabel} | ${durationDays} travel days`,
     },
   ];
 

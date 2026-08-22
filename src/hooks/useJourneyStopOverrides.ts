@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { hasSupabaseConfig, supabase } from "../config/supabase";
-import { Journey, OvernightStatus, Stop, StopType } from "../types";
+import { Journey, JourneyStatus, OvernightStatus, Stop, StopType } from "../types";
 
 const STOP_OVERRIDES_PAGE_SIZE = 1000;
 const STOP_OVERRIDES_SELECT =
@@ -74,6 +74,10 @@ type JourneyStopRow = {
   stop_id: string;
   type: string;
   updated_at: string;
+};
+
+type JourneySettingsRow = {
+  status: JourneyStatus;
 };
 
 function toJourneyStopOverride(row: JourneyStopOverrideRow): JourneyStopOverride {
@@ -233,11 +237,26 @@ async function fetchJourneyStops(journeyId: string) {
   }
 }
 
+async function fetchJourneySettings(journeyId: string) {
+  if (!supabase) {
+    return { error: null, row: null as JourneySettingsRow | null };
+  }
+
+  const { data, error } = await supabase
+    .from("journey_settings")
+    .select("status")
+    .eq("journey_id", journeyId)
+    .maybeSingle<JourneySettingsRow>();
+
+  return { error, row: data };
+}
+
 export function useJourneyStopOverrides(journey: Journey) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(hasSupabaseConfig);
   const [databaseStops, setDatabaseStops] = useState<Stop[]>([]);
   const [overrides, setOverrides] = useState<JourneyStopOverride[]>([]);
+  const [journeyStatus, setJourneyStatus] = useState<JourneyStatus | null>(null);
 
   useEffect(() => {
     if (!supabase) {
@@ -252,9 +271,14 @@ export function useJourneyStopOverrides(journey: Journey) {
       setIsLoading(true);
       setErrorMessage(null);
 
-      const [{ error: stopsError, rows: stopRows }, { error: overridesError, rows: overrideRows }] = await Promise.all([
+      const [
+        { error: stopsError, rows: stopRows },
+        { error: overridesError, rows: overrideRows },
+        { error: settingsError, row: settingsRow },
+      ] = await Promise.all([
         fetchJourneyStops(journey.id),
         fetchJourneyStopOverrides(journey.id),
+        fetchJourneySettings(journey.id),
       ]);
 
       if (!isMounted) {
@@ -273,8 +297,15 @@ export function useJourneyStopOverrides(journey: Journey) {
         return;
       }
 
+      if (settingsError) {
+        setErrorMessage(settingsError.message);
+        setIsLoading(false);
+        return;
+      }
+
       setDatabaseStops(stopRows.map(toJourneyStop));
       setOverrides(overrideRows.map(toJourneyStopOverride));
+      setJourneyStatus(settingsRow?.status ?? null);
       setIsLoading(false);
     }
 
@@ -302,6 +333,16 @@ export function useJourneyStopOverrides(journey: Journey) {
         },
         () => void loadOverrides(),
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          filter: `journey_id=eq.${journey.id}`,
+          schema: "public",
+          table: "journey_settings",
+        },
+        () => void loadOverrides(),
+      )
       .subscribe();
 
     return () => {
@@ -312,8 +353,14 @@ export function useJourneyStopOverrides(journey: Journey) {
 
   const usesDatabaseStops = databaseStops.length > 0;
   const journeyWithOverrides = useMemo(
-    () => (usesDatabaseStops ? { ...journey, stops: databaseStops } : applyJourneyStopOverrides(journey, overrides)),
-    [databaseStops, journey, overrides, usesDatabaseStops],
+    () => {
+      const journeyWithStops = usesDatabaseStops
+        ? { ...journey, stops: databaseStops }
+        : applyJourneyStopOverrides(journey, overrides);
+
+      return journeyStatus ? { ...journeyWithStops, status: journeyStatus } : journeyWithStops;
+    },
+    [databaseStops, journey, journeyStatus, overrides, usesDatabaseStops],
   );
 
   return { errorMessage, isLoading, journey: journeyWithOverrides, overrides, usesDatabaseStops };

@@ -18,6 +18,14 @@ export function getTimelineStops(journey: Journey) {
   return sortStops(journey.stops).filter((stop) => stop.showInTimeline !== false);
 }
 
+export function getJourneyDurationDays(journey: Journey) {
+  const start = new Date(`${journey.startDate}T12:00:00`);
+  const end = new Date(`${journey.endDate}T12:00:00`);
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+
+  return Math.floor((end.getTime() - start.getTime()) / millisecondsPerDay) + 1;
+}
+
 export function getStopAttractions(journey: Journey, stopId: string) {
   return journey.attractions.filter((attraction) => attraction.stopId === stopId);
 }

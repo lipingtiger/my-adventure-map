@@ -5,6 +5,7 @@ export type LiveLocationStatus = "disabled" | "loading" | "live" | "stale" | "hi
 export type LiveLocationHistoryStatus = "idle" | LiveLocationStatus;
 
 const LIVE_LOCATION_HISTORY_PAGE_SIZE = 1000;
+const LIVE_LOCATION_STALE_AFTER_MS = 30 * 60 * 1000;
 const LIVE_LOCATION_HISTORY_SELECT =
   "accuracy_m, altitude_m, battery_percent, created_at, heading_degrees, id, journey_id, latitude, longitude, recorded_at, sharing_enabled, source, speed_mps, tracker_id";
 
@@ -110,9 +111,7 @@ function toLiveLocationHistoryPoint(row: LiveLocationHistoryRow): LiveLocationHi
 function getLocationStatus(row: LiveLocationRow): LiveLocationStatus {
   const updatedAt = new Date(row.updated_at).getTime();
   const ageMs = Date.now() - updatedAt;
-  const staleAfterMs = 30 * 60 * 1000;
-
-  return ageMs > staleAfterMs ? "stale" : "live";
+  return ageMs > LIVE_LOCATION_STALE_AFTER_MS ? "stale" : "live";
 }
 
 function sortHistoryRows(rows: LiveLocationHistoryRow[]) {
@@ -197,8 +196,9 @@ export function useLiveLocation(journeyId: string) {
             return;
           }
 
-          setLocation(toLiveLocation(row));
-          setStatus(getLocationStatus(row));
+          const nextStatus = getLocationStatus(row);
+          setLocation(nextStatus === "live" ? toLiveLocation(row) : null);
+          setStatus(nextStatus);
         } catch (error) {
           if (!isMounted) {
             return;
@@ -256,8 +256,9 @@ export function useLiveLocation(journeyId: string) {
         return;
       }
 
-      setLocation(toLiveLocation(data));
-      setStatus(getLocationStatus(data));
+      const nextStatus = getLocationStatus(data);
+      setLocation(nextStatus === "live" ? toLiveLocation(data) : null);
+      setStatus(nextStatus);
     }
 
     void loadLiveLocation();
@@ -281,8 +282,9 @@ export function useLiveLocation(journeyId: string) {
             return;
           }
 
-          setLocation(toLiveLocation(row));
-          setStatus(getLocationStatus(row));
+          const nextStatus = getLocationStatus(row);
+          setLocation(nextStatus === "live" ? toLiveLocation(row) : null);
+          setStatus(nextStatus);
         },
       )
       .subscribe();
@@ -292,6 +294,27 @@ export function useLiveLocation(journeyId: string) {
       void supabaseClient.removeChannel(channel);
     };
   }, [journeyId]);
+
+  useEffect(() => {
+    if (!location) {
+      return undefined;
+    }
+
+    const remainingMs = LIVE_LOCATION_STALE_AFTER_MS - (Date.now() - new Date(location.updatedAt).getTime());
+
+    if (remainingMs <= 0) {
+      setLocation(null);
+      setStatus("stale");
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setLocation(null);
+      setStatus("stale");
+    }, remainingMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [location]);
 
   return { errorMessage, location, status };
 }

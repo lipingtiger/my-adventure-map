@@ -1,6 +1,14 @@
 import { CheckCircle2, CircleDashed } from "lucide-react";
 import { Journey } from "../types";
-import { formatShortDate, getStopAttractions, getStopDayLabel, getStopHikes, getStopLodging, getTimelineStops } from "../utils/journey";
+import {
+  formatShortDate,
+  getJourneyDurationDays,
+  getStopAttractions,
+  getStopDayLabel,
+  getStopHikes,
+  getStopLodging,
+  getTimelineStops,
+} from "../utils/journey";
 
 function listLodgingTypes(types: { type: string }[]) {
   if (!types.length) {
@@ -12,13 +20,14 @@ function listLodgingTypes(types: { type: string }[]) {
 
 export function JourneyTimeline({ journey }: { journey: Journey }) {
   const timelineStops = getTimelineStops(journey);
+  const durationDays = getJourneyDurationDays(journey);
 
   return (
     <section className="timeline" aria-labelledby="timeline-title">
       <div className="section-heading">
         <div>
           <span className="section-kicker">Route timeline</span>
-          <h2 id="timeline-title">{journey.durationLabel}</h2>
+          <h2 id="timeline-title">{durationDays} days on the road</h2>
         </div>
       </div>
       <ol className="timeline__list">

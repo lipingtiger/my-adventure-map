@@ -148,6 +148,35 @@ type ClearHistoryBody = {
   trackerId?: string;
 };
 
+type UpdateJourneySettingsBody = {
+  journeyId?: string;
+  status?: "active" | "completed" | "planning";
+};
+
+async function updateJourneySettings(req: Request, context: AdminContext) {
+  const body = (await req.json()) as UpdateJourneySettingsBody;
+  const journeyId = body.journeyId ?? "toronto-seattle-2026";
+
+  if (!body.status || !["planning", "active", "completed"].includes(body.status)) {
+    return jsonResponse({ error: "Choose a valid journey status" }, 400);
+  }
+
+  const { data, error } = await context.supabase
+    .from("journey_settings")
+    .upsert(
+      { journey_id: journeyId, status: body.status, updated_by: context.userId },
+      { onConflict: "journey_id" },
+    )
+    .select("journey_id, status, updated_at")
+    .single();
+
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  return jsonResponse({ ok: true, settings: data });
+}
+
 type UpdateStopBody = {
   address?: string | null;
   city?: string | null;
@@ -869,6 +898,10 @@ async function handleAdminRequest(req: Request) {
 
   if (url.pathname.endsWith("/upload-photo")) {
     return uploadPhoto(req, context);
+  }
+
+  if (url.pathname.endsWith("/update-journey-settings")) {
+    return updateJourneySettings(req, context);
   }
 
   if (url.pathname.endsWith("/clear-location-history")) {

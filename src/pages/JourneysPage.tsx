@@ -8,6 +8,7 @@ function JourneyCard({ baseJourney }: { baseJourney: Journey }) {
   const { journey } = useJourneyStopOverrides(baseJourney);
   const timelineStops = getTimelineStops(journey);
   const nationalParkCount = journey.stops.filter((stop) => stop.type === "national-park").length;
+  const hikingStopCount = journey.stops.filter((stop) => stop.type === "hiking").length;
 
   return (
     <Link className="journey-card" to={`/journeys/${journey.slug}`}>
@@ -34,7 +35,7 @@ function JourneyCard({ baseJourney }: { baseJourney: Journey }) {
           </div>
           <div>
             <dt>Hikes</dt>
-            <dd>{journey.hikes.length}</dd>
+            <dd>{hikingStopCount}</dd>
           </div>
         </dl>
       </div>
