@@ -48,14 +48,12 @@ function MapViewportController({
   historyPositions,
   journeyId,
   plannedPositions,
-  routeReady,
   showLiveHistory,
 }: {
   fitRequestId: number;
   historyPositions: [number, number][];
   journeyId: string;
   plannedPositions: [number, number][];
-  routeReady: boolean;
   showLiveHistory: boolean;
 }) {
   const map = useMap();
@@ -129,13 +127,13 @@ function MapViewportController({
   }, [map]);
 
   useEffect(() => {
-    if (!routeReady || hasInitialFitRef.current || plannedPositions.length === 0) {
+    if (hasInitialFitRef.current || userHasInteractedRef.current || plannedPositions.length === 0) {
       return;
     }
 
     hasInitialFitRef.current = true;
     fitPositions(plannedPositions);
-  }, [fitPositions, plannedPositions, routeReady]);
+  }, [fitPositions, plannedPositions]);
 
   useEffect(() => {
     if (fitRequestId === 0 || plannedPositions.length === 0) {
@@ -420,10 +418,7 @@ export function TripMap({ journey }: { journey: Journey }) {
   const [showLiveHistory, setShowLiveHistory] = useState(false);
   const [highlightedStopIndex, setHighlightedStopIndex] = useState(0);
   const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
-  const animatedStops = useMemo(
-    () => orderedStops.filter((stop) => stop.showInTimeline !== false),
-    [orderedStops],
-  );
+  const animatedStops = orderedStops;
   const { errorMessage: uploadedPhotoError, photos: uploadedPhotos } = useUploadedPhotos(journey.id);
   const { errorMessage: uploadedVideoError, videos: uploadedVideos } = useUploadedVideos(journey.id);
   const { errorMessage, routePositions, routeSegments, status, summary } = useOpenRouteServiceRoute(orderedStops);
@@ -452,7 +447,6 @@ export function TripMap({ journey }: { journey: Journey }) {
     () => getMapMediaByStop(journey, uploadedPhotos, uploadedVideos, orderedStops),
     [journey, orderedStops, uploadedPhotos, uploadedVideos],
   );
-  const routeReady = status !== "loading";
   const routeIsRoadGeometry = status === "success";
   const routeHasRoadGeometry = status === "success" || status === "partial";
   const liveLocationStatusLabel = {
@@ -487,7 +481,7 @@ export function TripMap({ journey }: { journey: Journey }) {
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [animatedStops.length, journey.status]);
+  }, [animatedStops.length, journey.id, journey.status]);
 
   const highlightedStopId = journey.status === "completed" ? animatedStops[highlightedStopIndex]?.id : undefined;
 
@@ -640,7 +634,6 @@ export function TripMap({ journey }: { journey: Journey }) {
             historyPositions={liveHistoryPositions}
             journeyId={journey.id}
             plannedPositions={plannedFitPositions}
-            routeReady={routeReady}
             showLiveHistory={showLiveHistory}
           />
         </MapContainer>
