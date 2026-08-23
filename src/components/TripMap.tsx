@@ -60,6 +60,7 @@ function MapViewportController({
   const hasFitHistoryRef = useRef(false);
   const hasInitialFitRef = useRef(false);
   const isProgrammaticMoveRef = useRef(false);
+  const lastHandledFitRequestIdRef = useRef(fitRequestId);
   const userHasInteractedRef = useRef(false);
 
   const fitPositions = useCallback(
@@ -90,6 +91,7 @@ function MapViewportController({
   useEffect(() => {
     hasFitHistoryRef.current = false;
     hasInitialFitRef.current = false;
+    lastHandledFitRequestIdRef.current = fitRequestId;
     userHasInteractedRef.current = false;
   }, [journeyId]);
 
@@ -136,10 +138,11 @@ function MapViewportController({
   }, [fitPositions, plannedPositions]);
 
   useEffect(() => {
-    if (fitRequestId === 0 || plannedPositions.length === 0) {
+    if (fitRequestId === lastHandledFitRequestIdRef.current || plannedPositions.length === 0) {
       return;
     }
 
+    lastHandledFitRequestIdRef.current = fitRequestId;
     userHasInteractedRef.current = false;
     fitPositions(plannedPositions);
   }, [fitPositions, fitRequestId, plannedPositions]);
