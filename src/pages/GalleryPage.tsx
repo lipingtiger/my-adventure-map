@@ -1,8 +1,9 @@
-import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Play, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { journeys } from "../data/journeys";
 import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
+import { UploadedVideo, useUploadedVideos } from "../hooks/useUploadedVideos";
 import { formatDisplayDate, getStopDayLabel, sortStops } from "../utils/journey";
 
 const ALL_STOPS = "all";
@@ -13,6 +14,12 @@ function sortPhotosByJourneyDate(photos: UploadedPhoto[]) {
   );
 }
 
+function sortVideosByJourneyDate(videos: UploadedVideo[]) {
+  return [...videos].sort((firstVideo, secondVideo) =>
+    (firstVideo.takenAt ?? firstVideo.createdAt).localeCompare(secondVideo.takenAt ?? secondVideo.createdAt),
+  );
+}
+
 export function GalleryPage() {
   const [selectedJourneyId, setSelectedJourneyId] = useState(journeys[0]?.id ?? "");
   const [selectedStopId, setSelectedStopId] = useState(ALL_STOPS);
@@ -20,6 +27,7 @@ export function GalleryPage() {
   const baseJourney = journeys.find((journey) => journey.id === selectedJourneyId) ?? journeys[0];
   const { errorMessage: journeyError, isLoading: isLoadingJourney, journey } = useJourneyStopOverrides(baseJourney);
   const { errorMessage: photoError, isLoading: isLoadingPhotos, photos } = useUploadedPhotos(journey.id);
+  const { errorMessage: videoError, isLoading: isLoadingVideos, videos } = useUploadedVideos(journey.id);
   const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
   const visiblePhotos = useMemo(
     () =>
@@ -30,22 +38,33 @@ export function GalleryPage() {
   );
   const activePhotoIndex = visiblePhotos.findIndex((photo) => photo.id === activePhotoId);
   const activePhoto = activePhotoIndex >= 0 ? visiblePhotos[activePhotoIndex] : null;
-  const photoGroups = useMemo(() => {
+  const visibleVideos = useMemo(
+    () =>
+      sortVideosByJourneyDate(
+        selectedStopId === ALL_STOPS ? videos : videos.filter((video) => video.stopId === selectedStopId),
+      ),
+    [selectedStopId, videos],
+  );
+  const mediaGroups = useMemo(() => {
     const groups = orderedStops
       .map((stop) => ({
         id: stop.id,
         label: `${getStopDayLabel(stop)} — ${stop.name}`,
         photos: visiblePhotos.filter((photo) => photo.stopId === stop.id),
+        videos: visibleVideos.filter((video) => video.stopId === stop.id),
       }))
-      .filter((group) => group.photos.length > 0);
+      .filter((group) => group.photos.length > 0 || group.videos.length > 0);
     const unassignedPhotos = visiblePhotos.filter(
       (photo) => !photo.stopId || !orderedStops.some((stop) => stop.id === photo.stopId),
     );
+    const unassignedVideos = visibleVideos.filter(
+      (video) => !video.stopId || !orderedStops.some((stop) => stop.id === video.stopId),
+    );
 
-    return unassignedPhotos.length > 0
-      ? [...groups, { id: "unassigned", label: "Other photos", photos: unassignedPhotos }]
+    return unassignedPhotos.length > 0 || unassignedVideos.length > 0
+      ? [...groups, { id: "unassigned", label: "Other media", photos: unassignedPhotos, videos: unassignedVideos }]
       : groups;
-  }, [orderedStops, visiblePhotos]);
+  }, [orderedStops, visiblePhotos, visibleVideos]);
 
   useEffect(() => {
     setSelectedStopId(ALL_STOPS);
@@ -84,8 +103,8 @@ export function GalleryPage() {
     return null;
   }
 
-  const isLoading = isLoadingJourney || isLoadingPhotos;
-  const errorMessage = journeyError || photoError;
+  const isLoading = isLoadingJourney || isLoadingPhotos || isLoadingVideos;
+  const errorMessage = journeyError || photoError || videoError;
 
   return (
     <main className="standard-page">
@@ -93,7 +112,7 @@ export function GalleryPage() {
         <div className="section-heading">
           <div>
             <span className="section-kicker">Gallery</span>
-            <h1>Journey Photos</h1>
+            <h1>Journey Photos &amp; Videos</h1>
           </div>
         </div>
 
@@ -123,16 +142,19 @@ export function GalleryPage() {
           </label>
         </div>
 
-        {isLoading ? <p className="gallery-status">Loading latest journey photos...</p> : null}
+        {isLoading ? <p className="gallery-status">Loading latest journey media...</p> : null}
         {errorMessage ? <p className="gallery-status gallery-status--error">{errorMessage}</p> : null}
 
-        {!isLoading && !errorMessage && photoGroups.length > 0 ? (
+        {!isLoading && !errorMessage && mediaGroups.length > 0 ? (
           <div className="gallery-stop-groups">
-            {photoGroups.map((group) => (
+            {mediaGroups.map((group) => (
               <section className="gallery-stop-group" key={group.id} aria-labelledby={`gallery-stop-${group.id}`}>
                 <div className="gallery-stop-group__heading">
                   <h2 id={`gallery-stop-${group.id}`}>{group.label}</h2>
-                  <span>{group.photos.length} photo{group.photos.length === 1 ? "" : "s"}</span>
+                  <span>
+                    {group.photos.length} photo{group.photos.length === 1 ? "" : "s"} · {group.videos.length} video
+                    {group.videos.length === 1 ? "" : "s"}
+                  </span>
                 </div>
                 <div className="gallery-grid">
                   {group.photos.map((photo) => (
@@ -150,14 +172,34 @@ export function GalleryPage() {
                       </span>
                     </button>
                   ))}
+                  {group.videos.map((video) => (
+                    <a className="gallery-card gallery-card--video" href={video.videoUrl} key={video.id} rel="noreferrer" target="_blank">
+                      <span className="gallery-video-thumbnail">
+                        {video.thumbnailUrl ? (
+                          <img alt="" loading="lazy" src={video.thumbnailUrl} />
+                        ) : (
+                          <span className="gallery-video-thumbnail__fallback">YouTube video</span>
+                        )}
+                        <span className="gallery-video-play" aria-hidden="true">
+                          <Play fill="currentColor" size={28} />
+                        </span>
+                      </span>
+                      <span className="gallery-card__body">
+                        <strong>{video.title}</strong>
+                        {video.takenAt ? <span className="gallery-card__date">{formatDisplayDate(video.takenAt)}</span> : null}
+                        {video.caption ? <span>{video.caption}</span> : null}
+                        <span className="gallery-video-link">Watch video <ExternalLink aria-hidden="true" size={15} /></span>
+                      </span>
+                    </a>
+                  ))}
                 </div>
               </section>
             ))}
           </div>
         ) : !isLoading && !errorMessage ? (
           <div className="gallery-empty">
-            <h2>No uploaded photos here yet</h2>
-            <p>Choose another stop, or use the Admin page to upload photos.</p>
+            <h2>No uploaded media here yet</h2>
+            <p>Choose another stop, or use the Admin page to add photos and video links.</p>
           </div>
         ) : null}
       </div>

@@ -77,10 +77,12 @@ async function fetchUploadedVideos(journeyId: string) {
 export function useUploadedVideos(journeyId: string) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(hasSupabaseConfig);
+  const [loadedJourneyId, setLoadedJourneyId] = useState<string | null>(hasSupabaseConfig ? null : journeyId);
   const [videos, setVideos] = useState<UploadedVideo[]>([]);
 
   useEffect(() => {
     if (!supabase) {
+      setLoadedJourneyId(journeyId);
       setIsLoading(false);
       return undefined;
     }
@@ -100,11 +102,13 @@ export function useUploadedVideos(journeyId: string) {
 
       if (error) {
         setErrorMessage(error.message);
+        setLoadedJourneyId(journeyId);
         setIsLoading(false);
         return;
       }
 
       setVideos(rows.map(toUploadedVideo));
+      setLoadedJourneyId(journeyId);
       setIsLoading(false);
     }
 
@@ -130,5 +134,11 @@ export function useUploadedVideos(journeyId: string) {
     };
   }, [journeyId]);
 
-  return { errorMessage, isLoading, videos };
+  const hasLoadedCurrentJourney = loadedJourneyId === journeyId;
+
+  return {
+    errorMessage: hasLoadedCurrentJourney ? errorMessage : null,
+    isLoading: isLoading || !hasLoadedCurrentJourney,
+    videos: hasLoadedCurrentJourney ? videos : [],
+  };
 }

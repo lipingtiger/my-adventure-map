@@ -1201,6 +1201,11 @@ a {
   font: inherit;
   text-align: left;
   cursor: zoom-in;
+  text-decoration: none;
+}
+
+.gallery-card--video {
+  cursor: pointer;
 }
 
 .gallery-card:hover,
@@ -1215,6 +1220,42 @@ a {
   aspect-ratio: 4 / 3;
   object-fit: cover;
   background: #dcebe1;
+}
+
+.gallery-video-thumbnail {
+  position: relative;
+  display: grid;
+  aspect-ratio: 4 / 3;
+  place-items: center;
+  overflow: hidden;
+  background: #1b2723;
+}
+
+.gallery-video-thumbnail img {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
+
+.gallery-video-thumbnail__fallback {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.gallery-video-play {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 3px solid rgba(255, 255, 255, 0.94);
+  border-radius: 999px;
+  background: rgba(190, 24, 24, 0.9);
+  color: #fff;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
 
 .gallery-card__body {
@@ -1235,6 +1276,15 @@ a {
 
 .gallery-card__date {
   color: var(--forest) !important;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.gallery-video-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--teal) !important;
   font-size: 0.82rem;
   font-weight: 900;
 }
