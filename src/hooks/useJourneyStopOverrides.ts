@@ -254,12 +254,14 @@ async function fetchJourneySettings(journeyId: string) {
 export function useJourneyStopOverrides(journey: Journey) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(hasSupabaseConfig);
+  const [loadedJourneyId, setLoadedJourneyId] = useState<string | null>(hasSupabaseConfig ? null : journey.id);
   const [databaseStops, setDatabaseStops] = useState<Stop[]>([]);
   const [overrides, setOverrides] = useState<JourneyStopOverride[]>([]);
   const [journeyStatus, setJourneyStatus] = useState<JourneyStatus | null>(null);
 
   useEffect(() => {
     if (!supabase) {
+      setLoadedJourneyId(journey.id);
       setIsLoading(false);
       return undefined;
     }
@@ -287,18 +289,21 @@ export function useJourneyStopOverrides(journey: Journey) {
 
       if (stopsError) {
         setErrorMessage(stopsError.message);
+        setLoadedJourneyId(journey.id);
         setIsLoading(false);
         return;
       }
 
       if (overridesError) {
         setErrorMessage(overridesError.message);
+        setLoadedJourneyId(journey.id);
         setIsLoading(false);
         return;
       }
 
       if (settingsError) {
         setErrorMessage(settingsError.message);
+        setLoadedJourneyId(journey.id);
         setIsLoading(false);
         return;
       }
@@ -306,6 +311,7 @@ export function useJourneyStopOverrides(journey: Journey) {
       setDatabaseStops(stopRows.map(toJourneyStop));
       setOverrides(overrideRows.map(toJourneyStopOverride));
       setJourneyStatus(settingsRow?.status ?? null);
+      setLoadedJourneyId(journey.id);
       setIsLoading(false);
     }
 
@@ -363,5 +369,13 @@ export function useJourneyStopOverrides(journey: Journey) {
     [databaseStops, journey, journeyStatus, overrides, usesDatabaseStops],
   );
 
-  return { errorMessage, isLoading, journey: journeyWithOverrides, overrides, usesDatabaseStops };
+  const hasLoadedCurrentJourney = loadedJourneyId === journey.id;
+
+  return {
+    errorMessage: hasLoadedCurrentJourney ? errorMessage : null,
+    isLoading: isLoading || !hasLoadedCurrentJourney,
+    journey: hasLoadedCurrentJourney ? journeyWithOverrides : journey,
+    overrides: hasLoadedCurrentJourney ? overrides : [],
+    usesDatabaseStops: hasLoadedCurrentJourney && usesDatabaseStops,
+  };
 }

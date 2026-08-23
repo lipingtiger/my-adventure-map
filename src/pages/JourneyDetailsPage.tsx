@@ -7,7 +7,19 @@ import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { Journey } from "../types";
 
 function JourneyDetailsContent({ baseJourney }: { baseJourney: Journey }) {
-  const { journey } = useJourneyStopOverrides(baseJourney);
+  const { errorMessage, isLoading, journey } = useJourneyStopOverrides(baseJourney);
+
+  if (isLoading || errorMessage) {
+    return (
+      <main className="standard-page" aria-busy={isLoading}>
+        <div className="page-shell page-shell--standard">
+          <p className={`journey-loading${errorMessage ? " journey-loading--error" : ""}`}>
+            {errorMessage ? "Unable to load the latest journey. Please try again." : "Loading latest journey..."}
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="standard-page">

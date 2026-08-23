@@ -73,10 +73,12 @@ async function fetchUploadedPhotos(journeyId: string) {
 export function useUploadedPhotos(journeyId: string) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(hasSupabaseConfig);
+  const [loadedJourneyId, setLoadedJourneyId] = useState<string | null>(hasSupabaseConfig ? null : journeyId);
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
 
   useEffect(() => {
     if (!supabase) {
+      setLoadedJourneyId(journeyId);
       setIsLoading(false);
       return undefined;
     }
@@ -96,11 +98,13 @@ export function useUploadedPhotos(journeyId: string) {
 
       if (error) {
         setErrorMessage(error.message);
+        setLoadedJourneyId(journeyId);
         setIsLoading(false);
         return;
       }
 
       setPhotos(rows.map(toUploadedPhoto));
+      setLoadedJourneyId(journeyId);
       setIsLoading(false);
     }
 
@@ -126,5 +130,11 @@ export function useUploadedPhotos(journeyId: string) {
     };
   }, [journeyId]);
 
-  return { errorMessage, isLoading, photos };
+  const hasLoadedCurrentJourney = loadedJourneyId === journeyId;
+
+  return {
+    errorMessage: hasLoadedCurrentJourney ? errorMessage : null,
+    isLoading: isLoading || !hasLoadedCurrentJourney,
+    photos: hasLoadedCurrentJourney ? photos : [],
+  };
 }

@@ -5,7 +5,20 @@ import { Journey } from "../types";
 import { formatDateRange, getTimelineStops } from "../utils/journey";
 
 function JourneyCard({ baseJourney }: { baseJourney: Journey }) {
-  const { journey } = useJourneyStopOverrides(baseJourney);
+  const { errorMessage, isLoading, journey } = useJourneyStopOverrides(baseJourney);
+
+  if (isLoading || errorMessage) {
+    return (
+      <article className="journey-card" aria-busy={isLoading}>
+        <div className="journey-card__body">
+          <p className={`journey-loading${errorMessage ? " journey-loading--error" : ""}`}>
+            {errorMessage ? "Unable to load the latest journey." : "Loading latest journey..."}
+          </p>
+        </div>
+      </article>
+    );
+  }
+
   const timelineStops = getTimelineStops(journey);
   const nationalParkCount = journey.stops.filter((stop) => stop.type === "national-park").length;
   const hikingStopCount = journey.stops.filter((stop) => stop.type === "hiking").length;
