@@ -8,6 +8,8 @@ const STOP_OVERRIDES_SELECT =
 const JOURNEY_STOPS_PAGE_SIZE = 1000;
 const JOURNEY_STOPS_SELECT =
   "address, city, completed, country, date, day_number, day_stop_order, description, destination, driving_distance_km, driving_distance_note, journey_id, latitude, longitude, name, notes, optional, overnight, overnight_status, show_in_timeline, sort_order, start_point, state_or_province, stop_id, type, updated_at";
+const JOURNEY_SETTINGS_SELECT =
+  "description, duration_label, end_date, route_note, start_date, status, subtitle, title, total_distance_label";
 
 export type JourneyStopOverride = {
   city: string | null;
@@ -76,8 +78,28 @@ type JourneyStopRow = {
   updated_at: string;
 };
 
-type JourneySettingsRow = {
+type JourneySettings = {
+  description: string;
+  durationLabel: string;
+  endDate: string;
+  routeNote: string;
+  startDate: string;
   status: JourneyStatus;
+  subtitle: string;
+  title: string;
+  totalDistanceLabel: string;
+};
+
+type JourneySettingsRow = {
+  description: string;
+  duration_label: string;
+  end_date: string;
+  route_note: string;
+  start_date: string;
+  status: JourneyStatus;
+  subtitle: string;
+  title: string;
+  total_distance_label: string;
 };
 
 function toJourneyStopOverride(row: JourneyStopOverrideRow): JourneyStopOverride {
@@ -132,6 +154,20 @@ function toJourneyStop(row: JourneyStopRow): Stop {
     startPoint: nullableTextToUndefined(row.start_point),
     stateOrProvince: row.state_or_province,
     type: row.type as StopType,
+  };
+}
+
+function toJourneySettings(row: JourneySettingsRow): JourneySettings {
+  return {
+    description: row.description,
+    durationLabel: row.duration_label,
+    endDate: row.end_date,
+    routeNote: row.route_note,
+    startDate: row.start_date,
+    status: row.status,
+    subtitle: row.subtitle,
+    title: row.title,
+    totalDistanceLabel: row.total_distance_label,
   };
 }
 
@@ -244,7 +280,7 @@ async function fetchJourneySettings(journeyId: string) {
 
   const { data, error } = await supabase
     .from("journey_settings")
-    .select("status")
+    .select(JOURNEY_SETTINGS_SELECT)
     .eq("journey_id", journeyId)
     .maybeSingle<JourneySettingsRow>();
 
@@ -257,7 +293,7 @@ export function useJourneyStopOverrides(journey: Journey) {
   const [loadedJourneyId, setLoadedJourneyId] = useState<string | null>(hasSupabaseConfig ? null : journey.id);
   const [databaseStops, setDatabaseStops] = useState<Stop[]>([]);
   const [overrides, setOverrides] = useState<JourneyStopOverride[]>([]);
-  const [journeyStatus, setJourneyStatus] = useState<JourneyStatus | null>(null);
+  const [journeySettings, setJourneySettings] = useState<JourneySettings | null>(null);
 
   useEffect(() => {
     if (!supabase) {
@@ -310,7 +346,7 @@ export function useJourneyStopOverrides(journey: Journey) {
 
       setDatabaseStops(stopRows.map(toJourneyStop));
       setOverrides(overrideRows.map(toJourneyStopOverride));
-      setJourneyStatus(settingsRow?.status ?? null);
+      setJourneySettings(settingsRow ? toJourneySettings(settingsRow) : null);
       setLoadedJourneyId(journey.id);
       setIsLoading(false);
     }
@@ -364,9 +400,9 @@ export function useJourneyStopOverrides(journey: Journey) {
         ? { ...journey, stops: databaseStops }
         : applyJourneyStopOverrides(journey, overrides);
 
-      return journeyStatus ? { ...journeyWithStops, status: journeyStatus } : journeyWithStops;
+      return journeySettings ? { ...journeyWithStops, ...journeySettings } : journeyWithStops;
     },
-    [databaseStops, journey, journeyStatus, overrides, usesDatabaseStops],
+    [databaseStops, journey, journeySettings, overrides, usesDatabaseStops],
   );
 
   const hasLoadedCurrentJourney = loadedJourneyId === journey.id;

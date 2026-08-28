@@ -149,25 +149,62 @@ type ClearHistoryBody = {
 };
 
 type UpdateJourneySettingsBody = {
+  description?: string;
+  durationLabel?: string;
+  endDate?: string;
   journeyId?: string;
+  routeNote?: string;
+  startDate?: string;
   status?: "active" | "completed" | "planning";
+  subtitle?: string;
+  title?: string;
+  totalDistanceLabel?: string;
 };
 
 async function updateJourneySettings(req: Request, context: AdminContext) {
   const body = (await req.json()) as UpdateJourneySettingsBody;
-  const journeyId = body.journeyId ?? "toronto-seattle-2026";
+  const journeyId = normalizeRequiredText(body.journeyId) || "toronto-seattle-2026";
+  const title = normalizeRequiredText(body.title);
+  const subtitle = normalizeRequiredText(body.subtitle);
+  const description = normalizeRequiredText(body.description);
+  const routeNote = normalizeRequiredText(body.routeNote);
+  const totalDistanceLabel = normalizeRequiredText(body.totalDistanceLabel);
+  const durationLabel = normalizeRequiredText(body.durationLabel);
+  const startDate = normalizeRequiredText(body.startDate);
+  const endDate = normalizeRequiredText(body.endDate);
+  const status = normalizeRequiredText(body.status);
 
-  if (!body.status || !["planning", "active", "completed"].includes(body.status)) {
+  if (!title || !subtitle || !description || !routeNote || !totalDistanceLabel || !durationLabel) {
+    return jsonResponse({ error: "Journey title, subtitle, overview, route note, distance label, and duration label are required" }, 400);
+  }
+
+  if (!isIsoDate(startDate) || !isIsoDate(endDate)) {
+    return jsonResponse({ error: "Valid journey start and end dates are required" }, 400);
+  }
+
+  if (!["planning", "active", "completed"].includes(status)) {
     return jsonResponse({ error: "Choose a valid journey status" }, 400);
   }
 
   const { data, error } = await context.supabase
     .from("journey_settings")
     .upsert(
-      { journey_id: journeyId, status: body.status, updated_by: context.userId },
+      {
+        description,
+        duration_label: durationLabel,
+        end_date: endDate,
+        journey_id: journeyId,
+        route_note: routeNote,
+        start_date: startDate,
+        status,
+        subtitle,
+        title,
+        total_distance_label: totalDistanceLabel,
+        updated_by: context.userId,
+      },
       { onConflict: "journey_id" },
     )
-    .select("journey_id, status, updated_at")
+    .select("description, duration_label, end_date, journey_id, route_note, start_date, status, subtitle, title, total_distance_label, updated_at")
     .single();
 
   if (error) {

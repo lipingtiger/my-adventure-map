@@ -396,6 +396,17 @@ export function AdminPage() {
         selectedStop.type,
       ].join("|")
     : "no-stop";
+  const journeyFormKey = [
+    journey.title,
+    journey.subtitle,
+    journey.description,
+    journey.routeNote,
+    journey.totalDistanceLabel,
+    journey.durationLabel,
+    journey.startDate,
+    journey.endDate,
+    journey.status,
+  ].join("|");
 
   useEffect(() => {
     if (!supabase) {
@@ -467,7 +478,7 @@ export function AdminPage() {
     setSession(null);
   }
 
-  async function updateJourneyStatus(event: FormEvent<HTMLFormElement>) {
+  async function updateJourneySettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!session) {
@@ -481,7 +492,18 @@ export function AdminPage() {
 
     try {
       const response = await fetchAdminTool("update-journey-settings", {
-        body: JSON.stringify({ journeyId: currentJourney.id, status }),
+        body: JSON.stringify({
+          description: getFormString(formData, "description"),
+          durationLabel: getFormString(formData, "durationLabel"),
+          endDate: getFormString(formData, "endDate"),
+          journeyId: currentJourney.id,
+          routeNote: getFormString(formData, "routeNote"),
+          startDate: getFormString(formData, "startDate"),
+          status,
+          subtitle: getFormString(formData, "subtitle"),
+          title: getFormString(formData, "title"),
+          totalDistanceLabel: getFormString(formData, "totalDistanceLabel"),
+        }),
         headers: {
           Authorization: `Bearer ${session.access_token}`,
           "Content-Type": "application/json",
@@ -491,14 +513,14 @@ export function AdminPage() {
       const data = (await response.json()) as { error?: string };
 
       if (!response.ok) {
-        setJourneyStatusMessage({ text: data.error ?? "Journey status update failed.", tone: "error" });
+        setJourneyStatusMessage({ text: data.error ?? "Journey content update failed.", tone: "error" });
         return;
       }
 
-      setJourneyStatusMessage({ text: `Journey status changed to ${status}.`, tone: "success" });
+      setJourneyStatusMessage({ text: "Journey content saved. Homepage and overview will refresh.", tone: "success" });
     } catch (error) {
       setJourneyStatusMessage({
-        text: error instanceof Error ? error.message : "Journey status update failed.",
+        text: error instanceof Error ? error.message : "Journey content update failed.",
         tone: "error",
       });
     } finally {
@@ -1267,21 +1289,59 @@ export function AdminPage() {
           </form>
         ) : (
           <div className="admin-grid">
-            <form className="admin-panel admin-form" onSubmit={updateJourneyStatus}>
-              <h2>Journey Status</h2>
+            <form className="admin-panel admin-form admin-panel--wide" key={journeyFormKey} onSubmit={updateJourneySettings}>
+              <h2>Journey Content</h2>
               <p className="admin-help">
-                This changes the public status label only. It does not start or stop OwnTracks location sharing.
+                Update the homepage title, subtitle, and Journey Overview text without changing code.
               </p>
+              <div className="admin-form__columns">
+                <label>
+                  Homepage title
+                  <input name="title" required defaultValue={journey.title} />
+                </label>
+                <label>
+                  Status
+                  <select name="status" defaultValue={journey.status}>
+                    <option value="planning">Planning</option>
+                    <option value="active">Active</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </label>
+              </div>
               <label>
-                Status
-                <select name="status" key={journey.status} defaultValue={journey.status}>
-                  <option value="planning">Planning</option>
-                  <option value="active">Active</option>
-                  <option value="completed">Completed</option>
-                </select>
+                Homepage subtitle
+                <textarea name="subtitle" required rows={3} defaultValue={journey.subtitle} />
               </label>
+              <label>
+                Journey overview
+                <textarea name="description" required rows={4} defaultValue={journey.description} />
+              </label>
+              <label>
+                Route note
+                <textarea name="routeNote" required rows={2} defaultValue={journey.routeNote} />
+              </label>
+              <div className="admin-form__columns">
+                <label>
+                  Start date
+                  <input name="startDate" required type="date" defaultValue={journey.startDate} />
+                </label>
+                <label>
+                  End date
+                  <input name="endDate" required type="date" defaultValue={journey.endDate} />
+                </label>
+              </div>
+              <div className="admin-form__columns">
+                <label>
+                  Total distance label
+                  <input name="totalDistanceLabel" required defaultValue={journey.totalDistanceLabel} />
+                </label>
+                <label>
+                  Duration label
+                  <input name="durationLabel" required defaultValue={journey.durationLabel} />
+                </label>
+              </div>
               <button disabled={isUpdatingJourneyStatus} type="submit">
-                {isUpdatingJourneyStatus ? "Saving..." : "Save journey status"}
+                {isUpdatingJourneyStatus ? "Saving..." : "Save journey content"}
               </button>
               {journeyStatusMessage ? (
                 <p className={`admin-message admin-message--${journeyStatusMessage.tone}`}>
