@@ -23,7 +23,7 @@ export function JourneyOverview({ journey }: { journey: Journey }) {
     {
       icon: Milestone,
       label: "Overview",
-      value: `${journey.totalDistanceLabel} | ${durationDays} travel days`,
+      value: [journey.totalDistanceLabel, durationDays > 0 ? `${durationDays} travel days` : journey.durationLabel].filter(Boolean).join(" | ") || "Planning",
     },
   ];
 

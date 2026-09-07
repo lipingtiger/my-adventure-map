@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight, ExternalLink, Play, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { journeys } from "../data/journeys";
+import { emptyJourney, useJourneys } from "../hooks/useJourneys";
 import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
 import { UploadedVideo, useUploadedVideos } from "../hooks/useUploadedVideos";
@@ -21,11 +21,12 @@ function sortVideosByJourneyDate(videos: UploadedVideo[]) {
 }
 
 export function GalleryPage() {
-  const [selectedJourneyId, setSelectedJourneyId] = useState(journeys[0]?.id ?? "");
+  const { journeys, isLoading: isLoadingJourney, errorMessage: journeyError } = useJourneys();
+  const [selectedJourneyId, setSelectedJourneyId] = useState("__library__");
   const [selectedStopId, setSelectedStopId] = useState(ALL_STOPS);
   const [activePhotoId, setActivePhotoId] = useState<string | null>(null);
-  const baseJourney = journeys.find((journey) => journey.id === selectedJourneyId) ?? journeys[0];
-  const { errorMessage: journeyError, isLoading: isLoadingJourney, journey } = useJourneyStopOverrides(baseJourney);
+  const baseJourney = journeys.find((journey) => journey.id === selectedJourneyId);
+  const journey = baseJourney ?? { ...emptyJourney, id: "__library__" };
   const { errorMessage: photoError, isLoading: isLoadingPhotos, photos } = useUploadedPhotos(journey.id);
   const { errorMessage: videoError, isLoading: isLoadingVideos, videos } = useUploadedVideos(journey.id);
   const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
@@ -99,10 +100,6 @@ export function GalleryPage() {
     };
   }, [activePhoto, activePhotoIndex, visiblePhotos]);
 
-  if (!baseJourney) {
-    return null;
-  }
-
   const isLoading = isLoadingJourney || isLoadingPhotos || isLoadingVideos;
   const errorMessage = journeyError || photoError || videoError;
 
@@ -118,6 +115,7 @@ export function GalleryPage() {
 
         <div className="gallery-filters" aria-label="Gallery filters">
           <div className="gallery-journey-tabs" aria-label="Choose a journey">
+            <button aria-pressed={journey.id === "__library__"} onClick={() => setSelectedJourneyId("__library__")} type="button">Independent library</button>
             {journeys.map((journeyOption) => (
               <button
                 aria-pressed={journeyOption.id === journey.id}

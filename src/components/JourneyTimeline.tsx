@@ -27,7 +27,7 @@ export function JourneyTimeline({ journey }: { journey: Journey }) {
       <div className="section-heading">
         <div>
           <span className="section-kicker">Route timeline</span>
-          <h2 id="timeline-title">{durationDays} days on the road</h2>
+          <h2 id="timeline-title">{durationDays > 0 ? `${durationDays} travel days` : "Journey stops"}</h2>
         </div>
       </div>
       <ol className="timeline__list">
@@ -56,6 +56,7 @@ export function JourneyTimeline({ journey }: { journey: Journey }) {
                 <div className="timeline-stop__details">
                   <p>{stop.description}</p>
                   <div className="timeline-meta">
+                    <span>Transportation: {stop.transportation || "car"}</span>
                     <span>
                       Distance:{" "}
                       {typeof stop.drivingDistanceKm === "number"

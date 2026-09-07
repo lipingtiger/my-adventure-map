@@ -19,6 +19,7 @@ export function getTimelineStops(journey: Journey) {
 }
 
 export function getJourneyDurationDays(journey: Journey) {
+  if (!journey.startDate || !journey.endDate) return 0;
   const start = new Date(`${journey.startDate}T12:00:00`);
   const end = new Date(`${journey.endDate}T12:00:00`);
   const millisecondsPerDay = 24 * 60 * 60 * 1000;
@@ -39,6 +40,7 @@ export function getStopLodging(journey: Journey, stopId: string) {
 }
 
 export function formatDisplayDate(date: string) {
+  if (!date) return "Dates to be confirmed";
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -47,6 +49,7 @@ export function formatDisplayDate(date: string) {
 }
 
 export function formatShortDate(date: string) {
+  if (!date) return "";
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -54,5 +57,6 @@ export function formatShortDate(date: string) {
 }
 
 export function formatDateRange(startDate: string, endDate: string) {
+  if (!startDate || !endDate) return "Dates to be confirmed";
   return `${formatDisplayDate(startDate)} - ${formatDisplayDate(endDate)}`;
 }

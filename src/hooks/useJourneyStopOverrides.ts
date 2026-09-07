@@ -6,8 +6,7 @@ const STOP_OVERRIDES_PAGE_SIZE = 1000;
 const STOP_OVERRIDES_SELECT =
   "city, country, date, description, destination, driving_distance_km, driving_distance_note, journey_id, latitude, longitude, name, overnight, start_point, state_or_province, stop_id, updated_at";
 const JOURNEY_STOPS_PAGE_SIZE = 1000;
-const JOURNEY_STOPS_SELECT =
-  "address, city, completed, country, date, day_number, day_stop_order, description, destination, driving_distance_km, driving_distance_note, journey_id, latitude, longitude, name, notes, optional, overnight, overnight_status, show_in_timeline, sort_order, start_point, state_or_province, stop_id, type, updated_at";
+const JOURNEY_STOPS_SELECT = "*";
 const JOURNEY_SETTINGS_SELECT =
   "description, duration_label, end_date, route_note, start_date, status, subtitle, title, total_distance_label";
 
@@ -50,6 +49,7 @@ type JourneyStopOverrideRow = {
 };
 
 type JourneyStopRow = {
+  transportation?: Stop["transportation"];
   address: string | null;
   city: string | null;
   completed: boolean;
@@ -127,13 +127,14 @@ function nullableTextToUndefined(value: string | null) {
   return value === null ? undefined : value;
 }
 
-function toJourneyStop(row: JourneyStopRow): Stop {
+export function toJourneyStop(row: JourneyStopRow): Stop {
   return {
+    transportation: row.transportation ?? "car",
     address: nullableTextToUndefined(row.address),
     city: nullableTextToUndefined(row.city),
     completed: row.completed,
     country: row.country,
-    date: row.date,
+    date: row.date ?? "",
     dayNumber: row.day_number ?? undefined,
     dayStopOrder: row.day_stop_order ?? undefined,
     description: row.description,

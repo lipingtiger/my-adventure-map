@@ -48,12 +48,14 @@ async function fetchUploadedPhotos(journeyId: string) {
   let offset = 0;
 
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("journey_photos")
       .select(UPLOADED_PHOTOS_SELECT)
-      .eq("journey_id", journeyId)
       .order("created_at", { ascending: false })
+      .order("id")
       .range(offset, offset + UPLOADED_PHOTOS_PAGE_SIZE - 1);
+    query = journeyId === "__library__" ? query.is("journey_id", null) : query.eq("journey_id", journeyId);
+    const { data, error } = await query;
 
     if (error) {
       return { error, rows };
@@ -109,6 +111,9 @@ export function useUploadedPhotos(journeyId: string) {
     }
 
     void loadPhotos();
+    const refresh = () => void loadPhotos();
+    window.addEventListener("map-data-changed", refresh);
+    const interval = window.setInterval(refresh, 30_000);
 
     const channel = supabaseClient
       .channel(`journey-photos-${journeyId}`)
@@ -126,6 +131,8 @@ export function useUploadedPhotos(journeyId: string) {
 
     return () => {
       isMounted = false;
+      window.removeEventListener("map-data-changed", refresh);
+      window.clearInterval(interval);
       void supabaseClient.removeChannel(channel);
     };
   }, [journeyId]);

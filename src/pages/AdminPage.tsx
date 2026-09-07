@@ -1,6 +1,12 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { currentJourney } from "../data/journeys";
+import { emptyJourney, useJourneys } from "../hooks/useJourneys";
+import { useAdminSession } from "../hooks/useAdminSession";
+import { PointPicker, PickedPoint } from "../components/PointPicker";
+import { LibraryManager } from "../components/LibraryManager";
+import { adminRequest } from "../utils/admin";
+import { routingProfile } from "../../supabase/functions/_shared/routes";
+import { Plus, Trash2 } from "lucide-react";
 import {
   hasOpenRouteServiceApiKey,
   openRouteServiceApiKey,
@@ -12,7 +18,7 @@ import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { UploadedPhoto, useUploadedPhotos } from "../hooks/useUploadedPhotos";
 import { UploadedVideo, useUploadedVideos } from "../hooks/useUploadedVideos";
 import { getStopDayLabel, sortStops } from "../utils/journey";
-import type { JourneyStatus, Photo, Stop, Video } from "../types";
+import type { Journey, JourneyStatus, Photo, Stop, Video } from "../types";
 
 type AdminMessage = {
   tone: "error" | "success";
@@ -56,7 +62,9 @@ async function fetchAdminTool(action: string, init: RequestInit) {
   const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
 
   try {
-    return await fetch(getFunctionUrl(action), { ...init, signal: controller.signal });
+    const response = await fetch(getFunctionUrl(action), { ...init, signal: controller.signal });
+    if (response.ok) window.dispatchEvent(new Event("map-data-changed"));
+    return response;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("The admin request timed out after 20 seconds. Please try again.");
@@ -185,9 +193,7 @@ function getBoundaryCountry(country: string) {
 
 function getGeocodeQuery(formData: FormData) {
   return [
-    getFormString(formData, "address"),
-    getFormString(formData, "name"),
-    getFormString(formData, "city"),
+    getFormString(formData, "address") || getFormString(formData, "city") || getFormString(formData, "name"),
     getFormString(formData, "stateOrProvince"),
     getFormString(formData, "country"),
   ]
@@ -262,6 +268,80 @@ function createUniqueStopId(stops: Stop[], dayNumber: number | null, name: strin
 }
 
 export function AdminPage() {
+  const { journeys, isLoading, errorMessage, refresh } = useJourneys();
+  const { session, isAdmin, error } = useAdminSession();
+  const [selectedId, setSelectedId] = useState("");
+  const [view, setView] = useState(new URLSearchParams(window.location.search).has("library") ? "highlights" : "journeys");
+  const [creating, setCreating] = useState(false);
+  const [start, setStart] = useState<PickedPoint | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const selected = journeys.find((item) => item.id === selectedId) ?? journeys[0];
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !start) return;
+    const data = new FormData(event.currentTarget);
+    setBusy(true); setMessage("");
+    try {
+      const result = await adminRequest("create-journey", session.access_token, {
+        title: data.get("title"), subtitle: data.get("subtitle"), start: { ...start, name: data.get("startName") },
+      });
+      setSelectedId(result.journeyId); setCreating(false); setStart(null); refresh();
+      setMessage("Journey created.");
+    } catch (err) { setMessage(err instanceof Error ? err.message : "Creation failed."); }
+    finally { setBusy(false); }
+  }
+  async function remove() {
+    if (!session || !selected || !window.confirm(`Delete "${selected.title}" and its stops and history? Photos and video links will stay in the Independent library.`)) return;
+    setBusy(true); setMessage("");
+    try {
+      await adminRequest("delete-journey", session.access_token, { journeyId: selected.id });
+      setSelectedId(""); refresh(); setMessage("Journey deleted. Media retained in the Independent library.");
+    } catch (err) { setMessage(err instanceof Error ? err.message : "Deletion failed."); }
+    finally { setBusy(false); }
+  }
+  if (!session) return <JourneyAdmin currentJourney={selected ?? emptyJourney} />;
+  if (!isAdmin) return <main className="page-shell standard-page"><p>{error || "Checking admin access..."}</p>
+    <button onClick={() => void supabase?.auth.signOut()}>Sign out</button></main>;
+  return <>
+    <div className="page-shell admin-journey-menu">
+      <h1>Admin</h1>
+      <div className="admin-toolbar"><label>Manage<select value={view} onChange={(e) => setView(e.target.value)}>
+        <option value="journeys">Journeys</option><option value="highlights">Highlight spots &amp; independent library</option>
+      </select></label><button onClick={() => void supabase?.auth.signOut()}>Sign out</button></div>
+      {errorMessage && <p role="alert">{errorMessage}</p>}
+      {view === "journeys" && <>
+        <div className="admin-toolbar"><label>Journey<select value={selected?.id ?? ""} disabled={busy || isLoading} onChange={(e) => setSelectedId(e.target.value)}>
+          {!journeys.length && <option value="">No journeys yet</option>}
+          {journeys.map((item) => <option value={item.id} key={item.id}>{item.title} ({item.status})</option>)}
+        </select></label>
+          <button disabled={busy} onClick={() => setCreating(!creating)}><Plus size={17} />Create journey</button>
+          <button disabled={busy || !selected} onClick={() => void remove()}><Trash2 size={17} />Delete journey</button>
+        </div>
+        {message && <p role="status">{message}</p>}
+        {creating && <form className="admin-form journey-create" onSubmit={create}>
+          <h2>Create journey</h2>
+          <label>Journey name<input name="title" required maxLength={200} /></label>
+          <label>Description<textarea name="subtitle" required /></label>
+          <label>Route start name<input name="startName" required /></label>
+          <PointPicker value={start} onChange={setStart} />
+          <button disabled={busy || !start} type="submit">{busy ? "Creating..." : "Create journey"}</button>
+        </form>}
+      </>}
+    </div>
+    {view === "highlights" ? <div className="page-shell"><LibraryManager token={session.access_token} /></div>
+      : selected && !creating ? <JourneyAdmin key={selected.id} currentJourney={selected} /> : null}
+  </>;
+}
+
+function TransportationField({ value = "car" }: { value?: string }) {
+  return <label>Transportation from previous stop<select name="transportation" defaultValue={value}>
+    <option value="car">Car</option><option value="airplane">Airplane</option><option value="boat">Boat</option>
+    <option value="bicycle">Bicycle</option><option value="walking">Walking</option>
+  </select></label>;
+}
+
+function JourneyAdmin({ currentJourney }: { currentJourney: Journey }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [session, setSession] = useState<Session | null>(null);
@@ -292,12 +372,10 @@ export function AdminPage() {
   const [updatingPhotoId, setUpdatingPhotoId] = useState<string | null>(null);
   const [updatingVideoId, setUpdatingVideoId] = useState<string | null>(null);
   const hasRequestedStopInitializationRef = useRef(false);
-  const {
-    errorMessage: stopOverridesError,
-    isLoading: isLoadingStops,
-    journey,
-    usesDatabaseStops,
-  } = useJourneyStopOverrides(currentJourney);
+  const stopOverridesError = "";
+  const isLoadingStops = false;
+  const journey = currentJourney;
+  const usesDatabaseStops = true;
   const {
     errorMessage: uploadedPhotosError,
     isLoading: isLoadingUploadedPhotos,
@@ -393,6 +471,7 @@ export function AdminPage() {
         selectedStop.startPoint,
         selectedStop.destination,
         selectedStop.drivingDistanceKm,
+        selectedStop.transportation,
         selectedStop.type,
       ].join("|")
     : "no-stop";
@@ -517,7 +596,7 @@ export function AdminPage() {
         return;
       }
 
-      setJourneyStatusMessage({ text: "Journey content saved. Homepage and overview will refresh.", tone: "success" });
+      setJourneyStatusMessage({ text: "Journey content saved.", tone: "success" });
     } catch (error) {
       setJourneyStatusMessage({
         text: error instanceof Error ? error.message : "Journey content update failed.",
@@ -536,7 +615,7 @@ export function AdminPage() {
     setIsInitializingStops(true);
     setStopMessage(null);
 
-    const response = await fetch(getFunctionUrl("initialize-stops"), {
+    const response = await fetchAdminTool("initialize-stops", {
       body: JSON.stringify({
         journeyId: currentJourney.id,
         stops: sortStops(journey.stops).map(getStopPayloadFromStop),
@@ -611,6 +690,7 @@ export function AdminPage() {
         stateOrProvince: getFormString(formData, "stateOrProvince"),
         stopId,
         type: getFormString(formData, "type") || "city",
+        transportation: getFormString(formData, "transportation") || "car",
       }),
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -645,7 +725,7 @@ export function AdminPage() {
     setIsMovingStop(true);
     setStopMessage(null);
 
-    const response = await fetch(getFunctionUrl("move-stop"), {
+    const response = await fetchAdminTool("move-stop", {
       body: JSON.stringify({
         direction,
         journeyId: currentJourney.id,
@@ -666,7 +746,7 @@ export function AdminPage() {
       return;
     }
 
-    setStopMessage({ text: "Stop moved. The route order will refresh.", tone: "success" });
+    setStopMessage({ text: "Stop moved. Check transportation and saved distances for the neighboring stops.", tone: "success" });
   }
 
   async function deleteSelectedStop() {
@@ -689,7 +769,7 @@ export function AdminPage() {
     setIsDeletingStop(true);
     setStopMessage(null);
 
-    const response = await fetch(getFunctionUrl("delete-stop"), {
+    const response = await fetchAdminTool("delete-stop", {
       body: JSON.stringify({
         journeyId: currentJourney.id,
         stopId: selectedStop.id,
@@ -726,7 +806,7 @@ export function AdminPage() {
     setIsUploading(true);
     setPhotoMessage(null);
 
-    const response = await fetch(getFunctionUrl("upload-photo"), {
+    const response = await fetchAdminTool("upload-photo", {
       body: formData,
       headers: {
         Authorization: `Bearer ${session.access_token}`,
@@ -759,7 +839,7 @@ export function AdminPage() {
     setIsAddingVideo(true);
     setVideoMessage(null);
 
-    const response = await fetch(getFunctionUrl("add-video-link"), {
+    const response = await fetchAdminTool("add-video-link", {
       body: JSON.stringify({
         caption: getFormString(formData, "caption") || null,
         journeyId: currentJourney.id,
@@ -802,7 +882,7 @@ export function AdminPage() {
     setIsClearingHistory(true);
     setHistoryMessage(null);
 
-    const response = await fetch(getFunctionUrl("clear-location-history"), {
+    const response = await fetchAdminTool("clear-location-history", {
       body: JSON.stringify({
         endAt: toIsoDateTime(endAt),
         journeyId: currentJourney.id,
@@ -843,7 +923,7 @@ export function AdminPage() {
     setIsUpdatingStop(true);
     setStopMessage(null);
 
-    const response = await fetch(getFunctionUrl("update-stop"), {
+    const response = await fetchAdminTool("update-stop", {
       body: JSON.stringify({
         address: String(formData.get("address") ?? "").trim() || null,
         city: String(formData.get("city") ?? "").trim() || null,
@@ -870,6 +950,7 @@ export function AdminPage() {
         stateOrProvince: String(formData.get("stateOrProvince") ?? "").trim(),
         stopId: String(formData.get("stopId") ?? "").trim(),
         type: String(formData.get("type") ?? "").trim() || "city",
+        transportation: getFormString(formData, "transportation") || "car",
       }),
       headers: {
         Authorization: `Bearer ${session.access_token}`,
@@ -1020,11 +1101,20 @@ export function AdminPage() {
     setStopMessage(null);
 
     try {
+      const mode = getFormString(formData, "transportation") || "car";
+      const profile = routingProfile(mode);
+      if (!profile) {
+        const km = Math.round(getStraightLineDistanceKm(previousStop, currentCoordinates) * 10) / 10;
+        if (distanceInput instanceof HTMLInputElement) distanceInput.value = String(km);
+        if (noteInput instanceof HTMLInputElement) noteInput.value = `${mode}: direct distance estimate`;
+        setStopMessage({ text: `Estimated distance: ${km} km. Save the stop to keep it.`, tone: "success" });
+        return;
+      }
       if (!hasOpenRouteServiceApiKey) {
         throw new Error("OpenRouteService API key is not configured.");
       }
 
-      const response = await fetch(openRouteServiceDirectionsUrl, {
+      const response = await fetch(`https://api.openrouteservice.org/v2/directions/${profile}/geojson`, {
         body: JSON.stringify({
           coordinates: [
             [previousStop.longitude, previousStop.latitude],
@@ -1062,7 +1152,7 @@ export function AdminPage() {
       }
 
       setStopMessage({
-        text: `Driving distance calculated from ${previousStop.name} to ${name || "this stop"}: ${distanceKm} km. Save the stop to keep it.`,
+        text: `Route distance calculated from ${previousStop.name} to ${name || "this stop"}: ${distanceKm} km. Save the stop to keep it.`,
         tone: "success",
       });
     } catch (error) {
@@ -1094,7 +1184,7 @@ export function AdminPage() {
     setUpdatingPhotoId(photoId);
     setManagePhotoMessage(null);
 
-    const response = await fetch(getFunctionUrl("update-photo"), {
+    const response = await fetchAdminTool("update-photo", {
       body: JSON.stringify({
         caption: getFormString(formData, "caption") || null,
         journeyId: currentJourney.id,
@@ -1135,7 +1225,7 @@ export function AdminPage() {
     setDeletingPhotoId(photo.id);
     setManagePhotoMessage(null);
 
-    const response = await fetch(getFunctionUrl("delete-photo"), {
+    const response = await fetchAdminTool("delete-photo", {
       body: JSON.stringify({
         journeyId: currentJourney.id,
         photoId: photo.id,
@@ -1171,7 +1261,7 @@ export function AdminPage() {
     setUpdatingVideoId(videoId);
     setManagePhotoMessage(null);
 
-    const response = await fetch(getFunctionUrl("update-video-link"), {
+    const response = await fetchAdminTool("update-video-link", {
       body: JSON.stringify({
         caption: getFormString(formData, "caption") || null,
         journeyId: currentJourney.id,
@@ -1214,7 +1304,7 @@ export function AdminPage() {
     setDeletingVideoId(video.id);
     setManagePhotoMessage(null);
 
-    const response = await fetch(getFunctionUrl("delete-video-link"), {
+    const response = await fetchAdminTool("delete-video-link", {
       body: JSON.stringify({
         journeyId: currentJourney.id,
         videoId: video.id,
@@ -1255,7 +1345,7 @@ export function AdminPage() {
         <div className="section-heading">
           <div>
             <span className="section-kicker">Admin</span>
-            <h1>Trip Admin</h1>
+            <h2>{currentJourney.title || "Sign in"}</h2>
           </div>
           {session ? (
             <button className="admin-secondary-button" onClick={signOut} type="button">
@@ -1292,11 +1382,11 @@ export function AdminPage() {
             <form className="admin-panel admin-form admin-panel--wide" key={journeyFormKey} onSubmit={updateJourneySettings}>
               <h2>Journey Content</h2>
               <p className="admin-help">
-                Update the homepage title, subtitle, and Journey Overview text without changing code.
+                {journey.title}
               </p>
               <div className="admin-form__columns">
                 <label>
-                  Homepage title
+                  Journey name
                   <input name="title" required defaultValue={journey.title} />
                 </label>
                 <label>
@@ -1309,35 +1399,35 @@ export function AdminPage() {
                 </label>
               </div>
               <label>
-                Homepage subtitle
+                Description
                 <textarea name="subtitle" required rows={3} defaultValue={journey.subtitle} />
               </label>
               <label>
-                Journey overview
-                <textarea name="description" required rows={4} defaultValue={journey.description} />
+                Overview
+                <textarea name="description" rows={4} defaultValue={journey.description} />
               </label>
               <label>
                 Route note
-                <textarea name="routeNote" required rows={2} defaultValue={journey.routeNote} />
+                <textarea name="routeNote" rows={2} defaultValue={journey.routeNote} />
               </label>
               <div className="admin-form__columns">
                 <label>
                   Start date
-                  <input name="startDate" required type="date" defaultValue={journey.startDate} />
+                  <input name="startDate" type="date" defaultValue={journey.startDate} />
                 </label>
                 <label>
                   End date
-                  <input name="endDate" required type="date" defaultValue={journey.endDate} />
+                  <input name="endDate" type="date" defaultValue={journey.endDate} />
                 </label>
               </div>
               <div className="admin-form__columns">
                 <label>
                   Total distance label
-                  <input name="totalDistanceLabel" required defaultValue={journey.totalDistanceLabel} />
+                  <input name="totalDistanceLabel" defaultValue={journey.totalDistanceLabel} />
                 </label>
                 <label>
                   Duration label
-                  <input name="durationLabel" required defaultValue={journey.durationLabel} />
+                  <input name="durationLabel" defaultValue={journey.durationLabel} />
                 </label>
               </div>
               <button disabled={isUpdatingJourneyStatus} type="submit">
@@ -1380,7 +1470,7 @@ export function AdminPage() {
                     </label>
                     <label>
                       Date
-                      <input name="date" required type="date" defaultValue={selectedStop.date} />
+                      <input name="date" type="date" defaultValue={selectedStop.date} />
                     </label>
                   </div>
                   <div className="admin-form__columns">
@@ -1416,11 +1506,11 @@ export function AdminPage() {
                     </label>
                     <label>
                       State / Province
-                      <input name="stateOrProvince" required defaultValue={selectedStop.stateOrProvince} />
+                      <input name="stateOrProvince" defaultValue={selectedStop.stateOrProvince} />
                     </label>
                     <label>
                       Country
-                      <input name="country" required defaultValue={selectedStop.country} />
+                      <input name="country" defaultValue={selectedStop.country} />
                     </label>
                   </div>
                   <div className="admin-form__columns">
@@ -1443,7 +1533,7 @@ export function AdminPage() {
                   </button>
                   <label>
                     Description
-                    <textarea name="description" required rows={3} defaultValue={selectedStop.description} />
+                    <textarea name="description" rows={3} defaultValue={selectedStop.description} />
                   </label>
                   <div className="admin-form__columns">
                     <label>
@@ -1459,9 +1549,10 @@ export function AdminPage() {
                       </select>
                     </label>
                     <label>
-                      Distance km
+                      Distance from previous stop (km)
                       <input name="drivingDistanceKm" type="number" min="0" step="any" defaultValue={selectedStop.drivingDistanceKm ?? ""} />
                     </label>
+                    {selectedStop.id !== editableStops[0]?.id && <TransportationField value={selectedStop.transportation} />}
                     <label>
                       Distance note
                       <input name="drivingDistanceNote" defaultValue={selectedStop.drivingDistanceNote ?? ""} />
@@ -1500,13 +1591,13 @@ export function AdminPage() {
                     </label>
                   </div>
                   <div className="admin-photo-actions">
-                    <button className="admin-secondary-button" disabled={isMovingStop} onClick={() => void moveStop("up")} type="button">
+                    <button className="admin-secondary-button" disabled={isMovingStop || editableStops.findIndex((stop) => stop.id === selectedStop.id) < 2} onClick={() => void moveStop("up")} type="button">
                       Move up
                     </button>
-                    <button className="admin-secondary-button" disabled={isMovingStop} onClick={() => void moveStop("down")} type="button">
+                    <button className="admin-secondary-button" disabled={isMovingStop || selectedStop.id === editableStops[0]?.id || selectedStop.id === editableStops[editableStops.length - 1]?.id} onClick={() => void moveStop("down")} type="button">
                       Move down
                     </button>
-                    <button className="admin-danger-button" disabled={isDeletingStop} onClick={() => void deleteSelectedStop()} type="button">
+                    <button className="admin-danger-button" disabled={isDeletingStop || selectedStop.id === editableStops[0]?.id} onClick={() => void deleteSelectedStop()} type="button">
                       {isDeletingStop ? "Deleting..." : "Delete stop"}
                     </button>
                   </div>
@@ -1590,17 +1681,17 @@ export function AdminPage() {
                 </label>
                 <label>
                   State / Province
-                  <input name="stateOrProvince" required defaultValue={selectedStop?.stateOrProvince ?? ""} />
+                  <input name="stateOrProvince" defaultValue={selectedStop?.stateOrProvince ?? ""} />
                 </label>
                 <label>
                   Country
-                  <input name="country" required defaultValue={selectedStop?.country ?? ""} />
+                  <input name="country" defaultValue={selectedStop?.country ?? ""} />
                 </label>
               </div>
               <div className="admin-form__columns">
                 <label>
                   Date
-                  <input name="date" required type="date" defaultValue={(() => {
+                  <input name="date" type="date" defaultValue={(() => {
                     const stopIndex = editableStops.findIndex((stop) => stop.id === insertAfterStopId);
                     return editableStops[stopIndex + 1]?.date ?? editableStops[stopIndex]?.date ?? currentJourney.startDate;
                   })()} />
@@ -1619,7 +1710,7 @@ export function AdminPage() {
               </button>
               <label>
                 Description
-                <textarea name="description" required rows={3} placeholder="What happens at this stop?" />
+                <textarea name="description" rows={3} placeholder="What happens at this stop?" />
               </label>
               <div className="admin-form__columns">
                 <label>
@@ -1647,9 +1738,10 @@ export function AdminPage() {
               </div>
               <div className="admin-form__columns">
                 <label>
-                  Distance km
+                  Distance from previous stop (km)
                   <input name="drivingDistanceKm" min="0" step="any" type="number" />
                 </label>
+                <TransportationField />
                 <label>
                   Distance note
                   <input name="drivingDistanceNote" />

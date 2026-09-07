@@ -52,12 +52,14 @@ async function fetchUploadedVideos(journeyId: string) {
   let offset = 0;
 
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("journey_video_links")
       .select(UPLOADED_VIDEOS_SELECT)
-      .eq("journey_id", journeyId)
       .order("created_at", { ascending: false })
+      .order("id")
       .range(offset, offset + UPLOADED_VIDEOS_PAGE_SIZE - 1);
+    query = journeyId === "__library__" ? query.is("journey_id", null) : query.eq("journey_id", journeyId);
+    const { data, error } = await query;
 
     if (error) {
       return { error, rows };
@@ -113,6 +115,9 @@ export function useUploadedVideos(journeyId: string) {
     }
 
     void loadVideos();
+    const refresh = () => void loadVideos();
+    window.addEventListener("map-data-changed", refresh);
+    const interval = window.setInterval(refresh, 30_000);
 
     const channel = supabaseClient
       .channel(`journey-video-links-${journeyId}`)
@@ -130,6 +135,8 @@ export function useUploadedVideos(journeyId: string) {
 
     return () => {
       isMounted = false;
+      window.removeEventListener("map-data-changed", refresh);
+      window.clearInterval(interval);
       void supabaseClient.removeChannel(channel);
     };
   }, [journeyId]);

@@ -1,4 +1,6 @@
-import { Navigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import { HeroBanner } from "../components/HeroBanner";
+import { useJourneys } from "../hooks/useJourneys";
 import { JourneyTimeline } from "../components/JourneyTimeline";
 import { JourneyOverview } from "../components/JourneyOverview";
 import { TripMap } from "../components/TripMap";
@@ -7,7 +9,8 @@ import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
 import { Journey } from "../types";
 
 function JourneyDetailsContent({ baseJourney }: { baseJourney: Journey }) {
-  const { errorMessage, isLoading, journey } = useJourneyStopOverrides(baseJourney);
+  const { errorMessage, isLoading } = useJourneys();
+  const journey = baseJourney;
 
   if (isLoading || errorMessage) {
     return (
@@ -22,7 +25,8 @@ function JourneyDetailsContent({ baseJourney }: { baseJourney: Journey }) {
   }
 
   return (
-    <main className="standard-page">
+    <main>
+      <HeroBanner journey={journey} />
       <div className="page-shell page-shell--standard">
         <div className="section-heading">
           <div>
@@ -40,11 +44,12 @@ function JourneyDetailsContent({ baseJourney }: { baseJourney: Journey }) {
 
 export function JourneyDetailsPage() {
   const { slug } = useParams();
-  const baseJourney = getJourneyBySlug(slug);
+  const { journeys, isLoading, errorMessage } = useJourneys();
+  const baseJourney = journeys.find((journey) => journey.slug === slug);
 
   if (!baseJourney) {
-    return <Navigate to="/journeys" replace />;
+    return <main className="page-shell standard-page"><p>{isLoading ? "Loading journey..." : errorMessage || "Journey not found."}</p><Link to="/journeys">All journeys</Link></main>;
   }
 
-  return <JourneyDetailsContent baseJourney={baseJourney} />;
+  return <JourneyDetailsContent key={baseJourney.id} baseJourney={baseJourney} />;
 }

@@ -129,7 +129,6 @@ async function handleOwnTracksRequest(req: Request) {
   }
 
   const url = new URL(req.url);
-  const journeyId = url.searchParams.get("journey_id") ?? Deno.env.get("DEFAULT_JOURNEY_ID") ?? "toronto-seattle-2026";
   const trackerId = getTrackerId(payload, url);
   const recordedAt = payload.tst ? new Date(payload.tst * 1000).toISOString() : new Date().toISOString();
   const secretKeys = getSecretKeys();
@@ -145,7 +144,6 @@ async function handleOwnTracksRequest(req: Request) {
     altitude_m: payload.alt ?? null,
     battery_percent: payload.batt ?? null,
     heading_degrees: payload.cog ?? null,
-    journey_id: journeyId,
     latitude: payload.lat,
     longitude: payload.lon,
     raw_payload: payload,
@@ -155,20 +153,15 @@ async function handleOwnTracksRequest(req: Request) {
     speed_mps: payload.vel ?? null,
     tracker_id: trackerId,
   };
-  const { error } = await supabase.from("live_locations").upsert(locationRow, { onConflict: "journey_id,tracker_id" });
+  if (!Number.isFinite(payload.lat) || !Number.isFinite(payload.lon) ||
+    Math.abs(payload.lat) > 90 || Math.abs(payload.lon) > 180 ||
+    new Date(recordedAt).getTime() > Date.now() + 300_000) {
+    return jsonResponse({ error: "Invalid location or timestamp" }, 400);
+  }
+  const { error } = await supabase.rpc("record_map_location", { p_row: locationRow });
 
   if (error) {
     return jsonResponse({ error: error.message }, 500);
-  }
-
-  const { error: historyError } = await supabase
-    .from("live_location_history")
-    .upsert(locationRow, { ignoreDuplicates: true, onConflict: "journey_id,tracker_id,recorded_at" });
-
-  if (historyError) {
-    console.error("Unable to write live location history", historyError);
-
-    return ownTracksAcceptedResponse();
   }
 
   return ownTracksAcceptedResponse();

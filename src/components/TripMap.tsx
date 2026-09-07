@@ -73,7 +73,7 @@ function MapViewportController({
       map.invalidateSize({ pan: false });
 
       const bounds = L.latLngBounds(positions) as LatLngBoundsExpression;
-      map.fitBounds(bounds, { padding: [34, 34] });
+      map.fitBounds(bounds, { padding: [34, 34], maxZoom: 13 });
 
       const clearProgrammaticMove = () => {
         isProgrammaticMoveRef.current = false;
@@ -427,12 +427,13 @@ export function TripMap({ journey }: { journey: Journey }) {
   const { errorMessage, routePositions, routeSegments, status, summary } = useOpenRouteServiceRoute(orderedStops);
   const { errorMessage: liveLocationError, location: liveLocation, status: liveLocationStatus } = useLiveLocation(
     journey.id,
+    journey.status === "active",
   );
   const {
     errorMessage: liveHistoryError,
     history: liveLocationHistory,
     status: liveHistoryStatus,
-  } = useLiveLocationHistory(journey.id, showLiveHistory);
+  } = useLiveLocationHistory(journey.id, showLiveHistory && journey.status !== "planning");
   const firstStop = orderedStops[0];
   const center: [number, number] = firstStop ? [firstStop.latitude, firstStop.longitude] : [0, 0];
   const liveHistoryPositions = useMemo(
@@ -508,17 +509,17 @@ export function TripMap({ journey }: { journey: Journey }) {
       <div className="route-status" data-status={status}>
         <span>
           {routeIsRoadGeometry
-            ? "Road route loaded from OpenRouteService"
+            ? "Journey route loaded"
             : routeHasRoadGeometry
-              ? "Road route partially loaded from OpenRouteService"
+              ? "Journey route partially loaded"
               : "Using straight-line fallback route"}
         </span>
-        {status === "loading" ? <span>Calculating road route...</span> : null}
-        {summary?.distanceKm ? <span>{Math.round(summary.distanceKm).toLocaleString()} km</span> : null}
-        {summary?.durationHours ? <span>{Math.round(summary.durationHours).toLocaleString()} driving hours</span> : null}
-        {hasSupabaseConfig ? <span>{liveLocationStatusLabel[liveLocationStatus]}</span> : null}
+        {status === "loading" ? <span>Loading route...</span> : null}
+        {summary?.distanceKm ? <span>{summary.estimated ? "~ " : ""}{Math.round(summary.distanceKm).toLocaleString()} km{summary.estimated ? " (includes estimates)" : ""}</span> : null}
+        {summary?.durationHours ? <span>{Math.round(summary.durationHours).toLocaleString()} travel hours</span> : null}
+        {hasSupabaseConfig && journey.status === "active" ? <span>{liveLocationStatusLabel[liveLocationStatus]}</span> : null}
         {showLiveHistory ? <span>{liveHistoryStatusLabel[liveHistoryStatus]}</span> : null}
-        {liveLocationError ? <span>{liveLocationError}</span> : null}
+        {liveLocationError && journey.status === "active" ? <span>{liveLocationError}</span> : null}
         {liveHistoryError ? <span>{liveHistoryError}</span> : null}
           {uploadedPhotoError ? <span>{uploadedPhotoError}</span> : null}
           {uploadedVideoError ? <span>{uploadedVideoError}</span> : null}
@@ -536,6 +537,7 @@ export function TripMap({ journey }: { journey: Journey }) {
         {hasSupabaseConfig ? (
           <button
             aria-pressed={showLiveHistory}
+            disabled={journey.status === "planning"}
             className="live-history-toggle"
             onClick={() => setShowLiveHistory((isVisible) => !isVisible)}
             type="button"
@@ -631,7 +633,7 @@ export function TripMap({ journey }: { journey: Journey }) {
               </Marker>
             );
           })}
-          <SharedLiveLocationMarker location={liveLocation} />
+          <SharedLiveLocationMarker location={journey.status === "active" ? liveLocation : null} />
           <MapViewportController
             fitRequestId={fitRequestId}
             historyPositions={liveHistoryPositions}

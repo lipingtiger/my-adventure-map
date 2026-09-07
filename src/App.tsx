@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { JourneysProvider } from "./hooks/useJourneys";
 import { AppLayout } from "./components/AppLayout";
 import { AboutPage } from "./pages/AboutPage";
 import { AdminPage } from "./pages/AdminPage";
@@ -11,7 +12,7 @@ import { JourneysPage } from "./pages/JourneysPage";
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <JourneysProvider><BrowserRouter>
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<HomePage />} />
@@ -24,6 +25,6 @@ export default function App() {
           <Route path="admin" element={<AdminPage />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </BrowserRouter></JourneysProvider>
   );
 }

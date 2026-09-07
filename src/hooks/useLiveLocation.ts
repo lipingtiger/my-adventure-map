@@ -109,7 +109,7 @@ function toLiveLocationHistoryPoint(row: LiveLocationHistoryRow): LiveLocationHi
 }
 
 function getLocationStatus(row: LiveLocationRow): LiveLocationStatus {
-  const updatedAt = new Date(row.updated_at).getTime();
+  const updatedAt = Math.min(new Date(row.updated_at).getTime(), new Date(row.recorded_at).getTime());
   const ageMs = Date.now() - updatedAt;
   return ageMs > LIVE_LOCATION_STALE_AFTER_MS ? "stale" : "live";
 }
@@ -169,12 +169,14 @@ async function fetchLiveLocationHistoryFromProxy(journeyId: string) {
   }
 }
 
-export function useLiveLocation(journeyId: string) {
+export function useLiveLocation(journeyId: string, enabled = true) {
   const [location, setLocation] = useState<LiveLocation | null>(null);
   const [status, setStatus] = useState<LiveLocationStatus>(hasSupabaseConfig ? "loading" : "disabled");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    setLocation(null);
+    if (!enabled) { setStatus("disabled"); return; }
     if (canUseLiveLocationProxy()) {
       let isMounted = true;
       let intervalId: number | undefined;
@@ -293,7 +295,7 @@ export function useLiveLocation(journeyId: string) {
       isMounted = false;
       void supabaseClient.removeChannel(channel);
     };
-  }, [journeyId]);
+  }, [journeyId, enabled]);
 
   useEffect(() => {
     if (!location) {

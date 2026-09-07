@@ -1,4 +1,5 @@
 export type JourneyStatus = "planning" | "active" | "completed";
+export type Transportation = "car" | "airplane" | "boat" | "bicycle" | "walking";
 
 export type StopType =
   | "start"
@@ -13,6 +14,7 @@ export type LodgingType = "motel" | "hostel" | "campground" | "lodge";
 export type OvernightStatus = "none" | "pass" | "overnight";
 
 export interface Stop {
+  transportation?: Transportation;
   id: string;
   journeyId: string;
   order: number;

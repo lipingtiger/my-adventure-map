@@ -1,4 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { manageJourney, manageLibrary } from "./journeys.ts";
+import { journeyRoute } from "./routes.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, content-type",
@@ -19,7 +21,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unexpected server error";
+  return error && typeof error === "object" && "message" in error ? String(error.message) : "Unexpected server error";
 }
 
 function getAdminEmails() {
@@ -174,12 +176,12 @@ async function updateJourneySettings(req: Request, context: AdminContext) {
   const endDate = normalizeRequiredText(body.endDate);
   const status = normalizeRequiredText(body.status);
 
-  if (!title || !subtitle || !description || !routeNote || !totalDistanceLabel || !durationLabel) {
-    return jsonResponse({ error: "Journey title, subtitle, overview, route note, distance label, and duration label are required" }, 400);
+  if (!title || !subtitle) {
+    return jsonResponse({ error: "Journey name and description are required" }, 400);
   }
 
-  if (!isIsoDate(startDate) || !isIsoDate(endDate)) {
-    return jsonResponse({ error: "Valid journey start and end dates are required" }, 400);
+  if ((startDate && !isIsoDate(startDate)) || (endDate && !isIsoDate(endDate)) || (startDate && endDate && endDate < startDate)) {
+    return jsonResponse({ error: "Check the journey dates" }, 400);
   }
 
   if (!["planning", "active", "completed"].includes(status)) {
@@ -188,22 +190,22 @@ async function updateJourneySettings(req: Request, context: AdminContext) {
 
   const { data, error } = await context.supabase
     .from("journey_settings")
-    .upsert(
+    .update(
       {
         description,
         duration_label: durationLabel,
-        end_date: endDate,
+        end_date: endDate || null,
         journey_id: journeyId,
         route_note: routeNote,
-        start_date: startDate,
+        start_date: startDate || null,
         status,
         subtitle,
         title,
         total_distance_label: totalDistanceLabel,
         updated_by: context.userId,
       },
-      { onConflict: "journey_id" },
     )
+    .eq("journey_id", journeyId)
     .select("description, duration_label, end_date, journey_id, route_note, start_date, status, subtitle, title, total_distance_label, updated_at")
     .single();
 
@@ -215,6 +217,7 @@ async function updateJourneySettings(req: Request, context: AdminContext) {
 }
 
 type UpdateStopBody = {
+  transportation?: string;
   address?: string | null;
   city?: string | null;
   completed?: boolean;
@@ -289,8 +292,7 @@ type DeleteVideoLinkBody = {
   videoId?: string;
 };
 
-const STOP_SELECT =
-  "address, city, completed, country, date, day_number, day_stop_order, description, destination, driving_distance_km, driving_distance_note, journey_id, latitude, longitude, name, notes, optional, overnight, overnight_status, show_in_timeline, sort_order, start_point, state_or_province, stop_id, type, updated_at";
+const STOP_SELECT = "*";
 const STOP_TYPES = new Set(["start", "city", "scenic-stop", "national-park", "hiking", "overnight", "destination"]);
 const OVERNIGHT_STATUSES = new Set(["none", "pass", "overnight"]);
 
@@ -422,11 +424,7 @@ function getStopPayload(body: UpdateStopBody, journeyId: string, userId: string,
     return { error: "Stop name is required" };
   }
 
-  if (!stateOrProvince || !country || !description) {
-    return { error: "State/province, country, and description are required" };
-  }
-
-  if (!isIsoDate(date)) {
+  if (date && !isIsoDate(date)) {
     return { error: "A valid stop date is required" };
   }
 
@@ -445,10 +443,11 @@ function getStopPayload(body: UpdateStopBody, journeyId: string, userId: string,
   return {
     payload: {
       address: normalizeNullableText(body.address),
+      transportation: ["car", "airplane", "boat", "bicycle", "walking"].includes(body.transportation ?? "") ? body.transportation : "car",
       city: normalizeNullableText(body.city),
       completed: normalizeBoolean(body.completed),
       country,
-      date,
+      date: date || null,
       day_number: normalizeInteger(body.dayNumber),
       day_stop_order: normalizeInteger(body.dayStopOrder),
       description,
@@ -925,6 +924,11 @@ async function handleAdminRequest(req: Request) {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
+  if (new URL(req.url).pathname.endsWith("/route-segment")) {
+    const key = getServiceRoleKey();
+    if (!key) return jsonResponse({ error: "Route service unavailable" }, 503);
+    return jsonResponse(await journeyRoute(await req.json(), createClient(Deno.env.get("SUPABASE_URL")!, key)));
+  }
   const context = await getAdminContext(req);
 
   if (context instanceof Response) {
@@ -932,6 +936,28 @@ async function handleAdminRequest(req: Request) {
   }
 
   const url = new URL(req.url);
+  const action = url.pathname.split("/").pop() ?? "";
+  if (["create-journey", "delete-journey"].includes(action)) {
+    return jsonResponse(await manageJourney(action, await req.json(), context));
+  }
+  if (action === "admin-session") return jsonResponse({ ok: true });
+  if (action.startsWith("library-")) return jsonResponse(await manageLibrary(action, req, context));
+
+  const input = req.headers.get("content-type")?.includes("multipart/form-data")
+    ? Object.fromEntries(await req.clone().formData()) : await req.clone().json();
+  const requestedJourney = normalizeRequiredText(input.journeyId);
+  if (!requestedJourney) return jsonResponse({ error: "Choose a journey" }, 400);
+  const { data: parent } = await context.supabase.from("journey_settings").select("journey_id")
+    .eq("journey_id", requestedJourney).maybeSingle();
+  if (!parent) return jsonResponse({ error: "Journey no longer exists. Refresh the page." }, 404);
+  if (["delete-stop", "move-stop"].includes(action)) {
+    const { data, error } = await context.supabase.rpc("reorder_map_stop", {
+      p_journey: requestedJourney, p_stop: input.stopId,
+      p_action: action === "delete-stop" ? "delete" : input.direction,
+    });
+    if (error) return jsonResponse({ error: error.message }, 400);
+    return jsonResponse({ ok: true, movedMediaToStopId: data });
+  }
 
   if (url.pathname.endsWith("/upload-photo")) {
     return uploadPhoto(req, context);

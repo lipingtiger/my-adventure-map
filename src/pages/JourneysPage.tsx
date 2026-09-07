@@ -1,77 +1,17 @@
 import { Link } from "react-router-dom";
-import { journeys } from "../data/journeys";
-import { useJourneyStopOverrides } from "../hooks/useJourneyStopOverrides";
-import { Journey } from "../types";
-import { formatDateRange, getTimelineStops } from "../utils/journey";
-
-function JourneyCard({ baseJourney }: { baseJourney: Journey }) {
-  const { errorMessage, isLoading, journey } = useJourneyStopOverrides(baseJourney);
-
-  if (isLoading || errorMessage) {
-    return (
-      <article className="journey-card" aria-busy={isLoading}>
-        <div className="journey-card__body">
-          <p className={`journey-loading${errorMessage ? " journey-loading--error" : ""}`}>
-            {errorMessage ? "Unable to load the latest journey." : "Loading latest journey..."}
-          </p>
-        </div>
-      </article>
-    );
-  }
-
-  const timelineStops = getTimelineStops(journey);
-  const nationalParkCount = journey.stops.filter((stop) => stop.type === "national-park").length;
-  const hikingStopCount = journey.stops.filter((stop) => stop.type === "hiking").length;
-
-  return (
-    <Link className="journey-card" to={`/journeys/${journey.slug}`}>
-      <div className="journey-card__cover" aria-hidden="true">
-        <span>Cover image</span>
-      </div>
-      <div className="journey-card__body">
-        <span className="journey-card__status">{journey.status}</span>
-        <h2>{journey.title}</h2>
-        <p className="journey-card__date">{formatDateRange(journey.startDate, journey.endDate)}</p>
-        <p>{journey.description}</p>
-        <dl className="journey-card__stats">
-          <div>
-            <dt>Total distance</dt>
-            <dd>{journey.totalDistanceLabel}</dd>
-          </div>
-          <div>
-            <dt>Stops</dt>
-            <dd>{timelineStops.length}</dd>
-          </div>
-          <div>
-            <dt>National parks</dt>
-            <dd>{nationalParkCount}</dd>
-          </div>
-          <div>
-            <dt>Hikes</dt>
-            <dd>{hikingStopCount}</dd>
-          </div>
-        </dl>
-      </div>
-    </Link>
-  );
-}
+import { useJourneys } from "../hooks/useJourneys";
+import { formatDateRange } from "../utils/journey";
 
 export function JourneysPage() {
-  return (
-    <main className="standard-page">
-      <div className="page-shell page-shell--standard">
-        <div className="section-heading">
-          <div>
-            <span className="section-kicker">All journeys</span>
-            <h1>Journeys</h1>
-          </div>
-        </div>
-        <div className="journey-card-grid">
-          {journeys.map((journey) => (
-            <JourneyCard baseJourney={journey} key={journey.id} />
-          ))}
-        </div>
-      </div>
-    </main>
-  );
+  const { journeys, isLoading, errorMessage, refresh } = useJourneys();
+  return <main className="standard-page"><div className="page-shell page-shell--standard">
+    <h1>Journeys</h1>
+    {isLoading && <p>Loading journeys...</p>}
+    {errorMessage && <p role="alert">{errorMessage} <button onClick={refresh}>Retry</button></p>}
+    {!isLoading && !errorMessage && !journeys.length && <p>No journeys yet.</p>}
+    <div className="journey-list">{journeys.map((journey) => <Link className="journey-list-item" to={`/journeys/${journey.slug}`} key={journey.id}>
+      <div><h2>{journey.title}</h2><p>{journey.subtitle}</p><span>{formatDateRange(journey.startDate, journey.endDate)}</span></div>
+      <div><span className="journey-card__status">{journey.status}</span><p>{journey.stops.length} stops</p></div>
+    </Link>)}</div>
+  </div></main>;
 }
