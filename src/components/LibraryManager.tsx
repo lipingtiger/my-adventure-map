@@ -1,8 +1,8 @@
 import { FormEvent, useMemo, useState } from "react";
-import { gps } from "exifr";
 import { Check, ChevronLeft, ChevronRight, ExternalLink, MapPin, Play, Save, Trash2, Upload, X } from "lucide-react";
 import { LibraryMedia, useMediaLibrary } from "../hooks/useMediaLibrary";
 import { adminRequest } from "../utils/admin";
+import { photoLocationMessage, prepareHighlightFile, readPhotoLocation } from "../utils/photoLocation";
 import { PickedPoint, PointPicker } from "./PointPicker";
 
 async function thumbnail(file: File) {
@@ -29,6 +29,7 @@ export function LibraryManager({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [uploadMode, setUploadMode] = useState("photo");
+  const [photoSource, setPhotoSource] = useState("files");
   const visible = useMemo(() => items.filter((item) => filter === "all" ||
     (filter === "unlocated" && item.latitude === null) ||
     (filter === "located" && item.is_highlight && item.latitude !== null) ||
@@ -52,22 +53,38 @@ export function LibraryManager({ token }: { token: string }) {
       }
       const files = data.getAll("files").filter((file): file is File => file instanceof File && file.size > 0);
       const failed: string[] = [];
-      let count = 0;
-      for (const file of files) {
-        setMessage(`Uploading ${count + failed.length + 1} of ${files.length}: ${file.name}`);
+      const unlocated: string[] = [];
+      let count = 0, located = 0;
+      for (const original of files) {
+        const fileName = original.name;
+        setMessage(`Uploading ${count + failed.length + 1} of ${files.length}: ${fileName}`);
         try {
+          const file = prepareHighlightFile(original);
           const formData = new FormData();
-          const position = await gps(file).catch(() => undefined);
+          const location = await readPhotoLocation(file);
           formData.set("file", file); formData.set("title", file.name.replace(/\.[^.]+$/, ""));
-          if (position && Number.isFinite(position.latitude) && Number.isFinite(position.longitude)) {
+          if (location.status === "located") {
+            const { position } = location;
             formData.set("latitude", String(position.latitude)); formData.set("longitude", String(position.longitude));
           }
           formData.set("thumbnail", await thumbnail(file), "thumbnail.jpg");
           await adminRequest("library-upload", token, formData); count++;
-        } catch (err) { failed.push(`${file.name}: ${err instanceof Error ? err.message : "Upload failed"}`); }
+          if (location.status === "located") located++;
+          else unlocated.push(`${file.name}: ${photoLocationMessage(location.status)}`);
+        } catch (err) { failed.push(`${fileName}: ${err instanceof Error ? err.message : "Upload failed"}`); }
       }
-      setMessage(`${count} uploaded.${failed.length ? ` Failed: ${failed.join("; ")}` : ""}`);
+      setMessage(`${count} uploaded: ${located} on the map, ${unlocated.length} in Unlocated.${unlocated.length ? ` ${unlocated.join("; ")}` : ""}${failed.length ? ` Failed: ${failed.join("; ")}` : ""}`);
+      if (count) { setFilter(unlocated.length ? "unlocated" : "located"); setPage(0); }
       if (!failed.length) form.reset();
+    });
+  }
+  async function restoreLocation(original: File, item: LibraryMedia) {
+    await run(async () => {
+      const location = await readPhotoLocation(prepareHighlightFile(original));
+      if (location.status !== "located") throw new Error(photoLocationMessage(location.status));
+      await adminRequest("library-locate", token, { items: [{ id: item.id, kind: "photo" }],
+        ...location.position, locationName: null });
+      setEditing(null); setMessage("Map position restored from the original photo. No duplicate was uploaded.");
     });
   }
   async function locate(remove = false) {
@@ -94,7 +111,13 @@ export function LibraryManager({ token }: { token: string }) {
       <label>Add media<select value={uploadMode} onChange={(e) => setUploadMode(e.target.value)} disabled={busy}>
         <option value="photo">Upload highlight photos</option><option value="video">Add YouTube link</option>
       </select></label>
-      {uploadMode === "photo" ? <label>Photos<input name="files" type="file" multiple required accept="image/jpeg,image/png,image/webp,image/gif" /></label> : <>
+      {uploadMode === "photo" ? <>
+        <label>Photo source<select value={photoSource} onChange={(event) => setPhotoSource(event.target.value)} disabled={busy}>
+          <option value="files">Original files</option><option value="photos">Photo library</option>
+        </select></label>
+        <label>Photos<input key={photoSource} name="files" type="file" multiple required disabled={busy}
+          accept={photoSource === "photos" ? "image/jpeg,image/png,image/webp,image/gif" : undefined} /></label>
+      </> : <>
         <label>Title<input name="title" required /></label><label>YouTube URL<input name="videoUrl" type="url" required /></label>
         <label>Caption<textarea name="caption" /></label></>}
       <button disabled={busy} type="submit"><Upload size={17} />{busy ? "Working..." : "Add media"}</button>
@@ -110,7 +133,7 @@ export function LibraryManager({ token }: { token: string }) {
       {visible.slice(currentPage * 24, currentPage * 24 + 24).map((item) => <article className="library-item" key={item.id}>
         <label className="library-check"><input type="checkbox" checked={selected.includes(item.id)} disabled={busy}
           onChange={(e) => setSelected((ids) => e.target.checked ? [...ids, item.id] : ids.filter((id) => id !== item.id))} />Select</label>
-        <button className="library-preview" onClick={() => setEditing(item)} title={`Edit ${item.title}`}>
+        <button className="library-preview" onClick={() => { setMessage(""); setEditing(item); }} title={`Edit ${item.title}`}>
           <img loading="lazy" src={item.thumbnail_url || item.public_url} alt={item.title} />
           {item.kind === "video" && <Play size={22} className="media-play" />}
         </button><strong>{item.title}</strong><span>{item.latitude === null ? "Unlocated" : item.location_name || `${item.latitude.toFixed(4)}, ${item.longitude?.toFixed(4)}`}</span>
@@ -129,6 +152,13 @@ export function LibraryManager({ token }: { token: string }) {
         <a href={editing.video_url || editing.public_url} target="_blank" rel="noreferrer"><ExternalLink size={16} />{editing.kind === "video" ? "Watch on YouTube" : "Open photo"}</a>
         <label>Title<input name="title" defaultValue={editing.title} required /></label>
         <label>Caption<textarea name="caption" defaultValue={editing.caption ?? ""} /></label>
+        {editing.kind === "photo" && editing.latitude === null && <label>Restore GPS from original photo
+          <input type="file" disabled={busy} onChange={(event) => {
+            const file = event.target.files?.[0]; event.target.value = "";
+            if (file) void restoreLocation(file, editing);
+          }} />
+        </label>}
+        {message && <p role="status" className="library-message">{message}</p>}
         {editing.kind === "video" && <label>YouTube URL<input type="url" name="videoUrl" defaultValue={editing.video_url} required /></label>}
         <div className="admin-toolbar"><button type="submit" disabled={busy}><Save size={17} />Save</button>
           <button type="button" disabled={busy} onClick={() => { setSelected([editing.id]); setEditing(null); }}><MapPin size={17} />Edit location</button>
