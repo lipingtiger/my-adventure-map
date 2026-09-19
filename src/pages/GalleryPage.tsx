@@ -22,11 +22,11 @@ function sortVideosByJourneyDate(videos: UploadedVideo[]) {
 
 export function GalleryPage() {
   const { journeys, isLoading: isLoadingJourney, errorMessage: journeyError } = useJourneys();
-  const [selectedJourneyId, setSelectedJourneyId] = useState("__library__");
+  const [selectedJourneyId, setSelectedJourneyId] = useState("__highlights__");
   const [selectedStopId, setSelectedStopId] = useState(ALL_STOPS);
   const [activePhotoId, setActivePhotoId] = useState<string | null>(null);
   const baseJourney = journeys.find((journey) => journey.id === selectedJourneyId);
-  const journey = baseJourney ?? { ...emptyJourney, id: "__library__" };
+  const journey = baseJourney ?? { ...emptyJourney, id: selectedJourneyId };
   const { errorMessage: photoError, isLoading: isLoadingPhotos, photos } = useUploadedPhotos(journey.id);
   const { errorMessage: videoError, isLoading: isLoadingVideos, videos } = useUploadedVideos(journey.id);
   const orderedStops = useMemo(() => sortStops(journey.stops), [journey.stops]);
@@ -63,9 +63,9 @@ export function GalleryPage() {
     );
 
     return unassignedPhotos.length > 0 || unassignedVideos.length > 0
-      ? [...groups, { id: "unassigned", label: "Other media", photos: unassignedPhotos, videos: unassignedVideos }]
+      ? [...groups, { id: "unassigned", label: journey.id === "__highlights__" ? "Highlight spots" : journey.id === "__unlocated__" ? "Unlocated" : "Other media", photos: unassignedPhotos, videos: unassignedVideos }]
       : groups;
-  }, [orderedStops, visiblePhotos, visibleVideos]);
+  }, [orderedStops, visiblePhotos, visibleVideos, journey.id]);
 
   useEffect(() => {
     setSelectedStopId(ALL_STOPS);
@@ -109,13 +109,14 @@ export function GalleryPage() {
         <div className="section-heading">
           <div>
             <span className="section-kicker">Gallery</span>
-            <h1>Journey Photos &amp; Videos</h1>
+            <h1>Photos &amp; Videos</h1>
           </div>
         </div>
 
         <div className="gallery-filters" aria-label="Gallery filters">
           <div className="gallery-journey-tabs" aria-label="Choose a journey">
-            <button aria-pressed={journey.id === "__library__"} onClick={() => setSelectedJourneyId("__library__")} type="button">Independent library</button>
+            <button aria-pressed={journey.id === "__highlights__"} onClick={() => setSelectedJourneyId("__highlights__")} type="button">Highlight spots</button>
+            <button aria-pressed={journey.id === "__unlocated__"} onClick={() => setSelectedJourneyId("__unlocated__")} type="button">Unlocated</button>
             {journeys.map((journeyOption) => (
               <button
                 aria-pressed={journeyOption.id === journey.id}
@@ -127,7 +128,7 @@ export function GalleryPage() {
               </button>
             ))}
           </div>
-          <label className="gallery-stop-filter">
+          {baseJourney && <label className="gallery-stop-filter">
             Stop
             <select onChange={(event) => setSelectedStopId(event.target.value)} value={selectedStopId}>
               <option value={ALL_STOPS}>All stops</option>
@@ -137,7 +138,7 @@ export function GalleryPage() {
                 </option>
               ))}
             </select>
-          </label>
+          </label>}
         </div>
 
         {isLoading ? <p className="gallery-status">Loading latest journey media...</p> : null}

@@ -21,7 +21,7 @@ export function useMediaLibrary(highlightsOnly = false) {
       for (let offset = 0; ; offset += 1000) {
         let query = supabase.from(kind === "photo" ? "journey_photos" : "journey_video_links")
           .select(`${common},${kind === "photo" ? "public_url" : "video_url"}`).order("created_at", { ascending: false }).order("id").range(offset, offset + 999);
-        if (highlightsOnly) query = query.eq("is_highlight", true).not("latitude", "is", null);
+        if (highlightsOnly) query = query.is("journey_id", null).not("latitude", "is", null).not("longitude", "is", null);
         const { data, error } = await query;
         if (error) throw error;
         rows.push(...((data ?? []) as unknown as LibraryMedia[]).map((item) => ({ ...item, kind })));

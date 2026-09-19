@@ -1,4 +1,5 @@
 import type { createClient } from "npm:@supabase/supabase-js@2";
+import { cleanupMediaFiles, pendingMediaCleanup } from "./media-cleanup.ts";
 type Context = { supabase: ReturnType<typeof createClient>; userId: string };
 
 export async function manageJourney(action: string, body: Record<string, any>, context: Context) {
@@ -32,6 +33,8 @@ export async function manageJourney(action: string, body: Record<string, any>, c
 }
 
 export async function manageLibrary(action: string, req: Request, context: Context) {
+  if (action === "library-cleanup-status") return { pending: await pendingMediaCleanup(context.supabase) };
+  if (action === "library-cleanup") return { pending: await cleanupMediaFiles(context.supabase) };
   if (action === "library-upload") {
     const form = await req.formData();
     const file = form.get("file");
@@ -71,6 +74,16 @@ export async function manageLibrary(action: string, req: Request, context: Conte
     return { ok: true };
   }
   const body = await req.json();
+  if (action === "library-delete-unlocated") {
+    if (!Array.isArray(body.items) || !body.items.length || body.items.length > 100 ||
+      body.items.some((item: any) => !item || !["photo", "video"].includes(item.kind) ||
+        typeof item.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id))) {
+      throw new Error("Choose 1 to 100 valid media items.");
+    }
+    const { data: deleted, error } = await context.supabase.rpc("delete_unlocated_media", { p_items: body.items });
+    if (error) throw error;
+    return { deleted, pending: await cleanupMediaFiles(context.supabase) };
+  }
   const table = body.kind === "video" ? "journey_video_links" : "journey_photos";
   if (action === "library-video") {
     const id = youtubeId(body.videoUrl);
@@ -90,7 +103,7 @@ export async function manageLibrary(action: string, req: Request, context: Conte
       if (!ids.length) continue;
       const { error } = await context.supabase.from(kind === "photo" ? "journey_photos" : "journey_video_links")
         .update({ latitude: body.latitude, longitude: body.longitude, location_name: body.locationName || null, is_highlight: true })
-        .in("id", ids);
+        .in("id", ids).is("journey_id", null);
       if (error) throw error;
     }
   } else if (action === "library-update") {

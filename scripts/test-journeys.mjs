@@ -11,7 +11,8 @@ function moduleUrl(path, imports = {}) {
 const sharedUrl = moduleUrl("supabase/functions/_shared/routes.ts");
 const { directLines, distanceKm, routingProfile, routeKey } = await import(sharedUrl);
 const { journeyRoute } = await import(moduleUrl("supabase/functions/admin-tools/routes.ts", { "../_shared/routes.ts": sharedUrl }));
-const { manageJourney } = await import(moduleUrl("supabase/functions/admin-tools/journeys.ts"));
+const cleanupUrl = moduleUrl("supabase/functions/admin-tools/media-cleanup.ts");
+const { manageJourney } = await import(moduleUrl("supabase/functions/admin-tools/journeys.ts", { "./media-cleanup.ts": cleanupUrl }));
 
 test("world routes split in both directions at the date line", () => {
   for (const points of [[[35, 170], [45, -170]], [[45, -170], [35, 170]]]) {

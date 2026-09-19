@@ -1,8 +1,9 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, ExternalLink, MapPin, Play, Save, Trash2, Upload, X } from "lucide-react";
 import { LibraryMedia, useMediaLibrary } from "../hooks/useMediaLibrary";
 import { adminRequest } from "../utils/admin";
 import { photoLocationMessage, prepareHighlightFile, readPhotoLocation } from "../utils/photoLocation";
+import { mediaCategory } from "../utils/mediaCategory";
 import { PickedPoint, PointPicker } from "./PointPicker";
 
 async function thumbnail(file: File) {
@@ -17,7 +18,7 @@ async function thumbnail(file: File) {
 export function LibraryManager({ token }: { token: string }) {
   const { items, loading, error, refresh } = useMediaLibrary();
   const params = new URLSearchParams(window.location.search);
-  const [filter, setFilter] = useState(params.has("media") ? "all" : "unlocated");
+  const [filter, setFilter] = useState(params.has("media") ? "located" : "unlocated");
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<string[]>(params.get("media")?.split(",") ?? []);
   const [editing, setEditing] = useState<LibraryMedia | null>(null);
@@ -30,18 +31,41 @@ export function LibraryManager({ token }: { token: string }) {
   const [message, setMessage] = useState("");
   const [uploadMode, setUploadMode] = useState("photo");
   const [photoSource, setPhotoSource] = useState("files");
-  const visible = useMemo(() => items.filter((item) => filter === "all" ||
-    (filter === "unlocated" && item.latitude === null) ||
-    (filter === "located" && item.is_highlight && item.latitude !== null) ||
-    (filter === "independent" && item.journey_id === null)), [filter, items]);
+  const [cleanupPending, setCleanupPending] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    void adminRequest("library-cleanup-status", token, {}).then((result) => {
+      if (!cancelled) setCleanupPending(result.pending);
+    }).catch(() => { if (!cancelled) setMessage("Could not check pending file cleanup. Reopen this section to retry."); });
+    return () => { cancelled = true; };
+  }, [token]);
+  const visible = useMemo(() => items.filter((item) => mediaCategory(item) === filter), [filter, items]);
   const maxPage = Math.max(0, Math.ceil(visible.length / 24) - 1);
   const currentPage = Math.min(page, maxPage);
-  const chosen = items.filter((item) => selected.includes(item.id));
+  const chosen = visible.filter((item) => selected.includes(item.id));
   async function run(task: () => Promise<void>) {
     setBusy(true); setMessage("");
     try { await task(); refresh(); }
-    catch (err) { setMessage(err instanceof Error ? err.message : "Request failed."); }
+    catch (err) { refresh(); setMessage(err instanceof Error ? err.message : "Request failed."); }
     finally { setBusy(false); }
+  }
+  async function deleteUnlocated(targets = chosen) {
+    if (!targets.length || targets.length > 100 || targets.some((item) => mediaCategory(item) !== "unlocated")) return;
+    const photos = targets.filter((item) => item.kind === "photo").length;
+    if (!window.confirm(`Permanently delete ${photos} photo(s) and ${targets.length - photos} video link(s) from Unlocated? Original photos and thumbnails will be removed from storage. YouTube videos will not be deleted. This cannot be undone.`)) return;
+    await run(async () => {
+      let result;
+      try {
+        result = await adminRequest("library-delete-unlocated", token, { items: targets.map(({ id, kind }) => ({ id, kind })) });
+      } catch (error) {
+        const status = await adminRequest("library-cleanup-status", token, {}).catch(() => null);
+        if (status) setCleanupPending(status.pending);
+        throw error;
+      }
+      setCleanupPending(result.pending);
+      setSelected([]); setEditing(null);
+      setMessage(`${result.deleted} media item(s) permanently deleted.${result.pending ? ` Storage cleanup is still pending for ${result.pending} photo(s).` : photos ? " Photo files and thumbnails removed." : ""}`);
+    });
   }
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -106,7 +130,7 @@ export function LibraryManager({ token }: { token: string }) {
     });
   }
   return <section className="library-manager">
-    <h2>Highlight spots &amp; independent library</h2>
+    <h2>Manage Highlight spots</h2>
     <form className="admin-form library-upload" onSubmit={upload}>
       <label>Add media<select value={uploadMode} onChange={(e) => setUploadMode(e.target.value)} disabled={busy}>
         <option value="photo">Upload highlight photos</option><option value="video">Add YouTube link</option>
@@ -123,17 +147,23 @@ export function LibraryManager({ token }: { token: string }) {
       <button disabled={busy} type="submit"><Upload size={17} />{busy ? "Working..." : "Add media"}</button>
     </form>
     {(message || error) && <p role="status" className="library-message">{message || error}</p>}
-    <div className="admin-toolbar"><label>Show<select value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0); setSelected([]); }}>
+    {cleanupPending > 0 && <div className="admin-toolbar"><span>{cleanupPending} deleted photo(s) awaiting file cleanup</span>
+      <button disabled={busy} onClick={() => void run(async () => {
+        const result = await adminRequest("library-cleanup", token, {});
+        setCleanupPending(result.pending);
+        setMessage(result.pending ? `${result.pending} photo(s) still awaiting file cleanup. Please retry.` : "Deleted photo files and thumbnails removed from storage.");
+      })}><Trash2 size={17} />Retry file cleanup</button></div>}
+    <div className="admin-toolbar"><label>Show<select disabled={busy} value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0); setSelected([]); }}>
       <option value="unlocated">Unlocated</option><option value="located">Highlight spots</option>
-      <option value="independent">Independent library</option><option value="all">All media</option>
-    </select></label><span>{visible.length} items / {chosen.length} selected</span></div>
+    </select></label><span>{visible.length} items / {chosen.length} selected</span>
+      <button disabled={busy || !visible.length} onClick={() => setSelected((ids) => [...new Set([...ids, ...visible.slice(currentPage * 24, currentPage * 24 + 24).map((item) => item.id)])])}><Check size={17} />Select this page</button></div>
     {loading && <p>Loading media...</p>}
     {!loading && !visible.length && <p>No media in this view.</p>}
     <div className="library-grid">
       {visible.slice(currentPage * 24, currentPage * 24 + 24).map((item) => <article className="library-item" key={item.id}>
         <label className="library-check"><input type="checkbox" checked={selected.includes(item.id)} disabled={busy}
           onChange={(e) => setSelected((ids) => e.target.checked ? [...ids, item.id] : ids.filter((id) => id !== item.id))} />Select</label>
-        <button className="library-preview" onClick={() => { setMessage(""); setEditing(item); }} title={`Edit ${item.title}`}>
+        <button className="library-preview" disabled={busy} onClick={() => { setMessage(""); setEditing(item); }} title={`Edit ${item.title}`}>
           <img loading="lazy" src={item.thumbnail_url || item.public_url} alt={item.title} />
           {item.kind === "video" && <Play size={22} className="media-play" />}
         </button><strong>{item.title}</strong><span>{item.latitude === null ? "Unlocated" : item.location_name || `${item.latitude.toFixed(4)}, ${item.longitude?.toFixed(4)}`}</span>
@@ -144,7 +174,9 @@ export function LibraryManager({ token }: { token: string }) {
     {chosen.length > 0 && <div className="library-location"><h3>Selected media location</h3><PointPicker value={point} onChange={setPoint} />
       <div className="admin-toolbar"><button disabled={busy || !point || chosen.length > 100} onClick={() => void locate()}><MapPin size={17} />Save map position</button>
         <button disabled={busy || chosen.length > 100} onClick={() => void locate(true)}><X size={17} />Remove map position</button>
-        <button disabled={busy} onClick={() => setSelected([])}><Check size={17} />Clear selection</button></div></div>}
+        {filter === "unlocated" && <button className="admin-danger-button" disabled={busy || chosen.length > 100} onClick={() => void deleteUnlocated()}><Trash2 size={17} />Permanently delete selected ({chosen.length})</button>}
+        <button disabled={busy} onClick={() => setSelected([])}><Check size={17} />Clear selection</button></div>
+      {chosen.length > 100 && <p role="status">Choose up to 100 items per batch.</p>}</div>}
     {editing && <div className="media-modal" role="dialog" aria-modal="true" aria-label="Edit media">
       <form className="admin-form media-editor" onSubmit={save} key={editing.id}>
         <button type="button" className="media-close" title="Close editor" aria-label="Close editor" onClick={() => setEditing(null)}><X /></button>
@@ -163,7 +195,8 @@ export function LibraryManager({ token }: { token: string }) {
         <div className="admin-toolbar"><button type="submit" disabled={busy}><Save size={17} />Save</button>
           <button type="button" disabled={busy} onClick={() => { setSelected([editing.id]); setEditing(null); }}><MapPin size={17} />Edit location</button>
           <button type="button" disabled={busy} onClick={() => {
-            if (window.confirm(`Permanently delete "${editing.title}"? This also removes it from any journey.`)) void run(async () => {
+            if (mediaCategory(editing) === "unlocated") { void deleteUnlocated([editing]); return; }
+            if (window.confirm(`Permanently delete "${editing.title}"? This cannot be undone. YouTube videos will not be deleted.`)) void run(async () => {
               await adminRequest("library-delete", token, { id: editing.id, kind: editing.kind }); setEditing(null); setMessage("Media deleted.");
             });
           }}><Trash2 size={17} />Delete</button></div>

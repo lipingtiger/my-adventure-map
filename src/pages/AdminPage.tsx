@@ -292,11 +292,11 @@ export function AdminPage() {
     finally { setBusy(false); }
   }
   async function remove() {
-    if (!session || !selected || !window.confirm(`Delete "${selected.title}" and its stops and history? Photos and video links will stay in the Independent library.`)) return;
+    if (!session || !selected || !window.confirm(`Delete "${selected.title}" and its stops and history? Photos and video links will be kept in Unlocated, with their journey links and map positions removed. Original photo GPS data will not be changed.`)) return;
     setBusy(true); setMessage("");
     try {
       await adminRequest("delete-journey", session.access_token, { journeyId: selected.id });
-      setSelectedId(""); refresh(); setMessage("Journey deleted. Media retained in the Independent library.");
+      setSelectedId(""); refresh(); setMessage("Journey deleted. Photos and video links retained in Unlocated.");
     } catch (err) { setMessage(err instanceof Error ? err.message : "Deletion failed."); }
     finally { setBusy(false); }
   }
@@ -307,7 +307,7 @@ export function AdminPage() {
     <div className="page-shell admin-journey-menu">
       <h1>Admin</h1>
       <div className="admin-toolbar"><label>Manage<select value={view} onChange={(e) => setView(e.target.value)}>
-        <option value="journeys">Journeys</option><option value="highlights">Highlight spots &amp; independent library</option>
+        <option value="journeys">Journeys</option><option value="highlights">Manage Highlight spots</option>
       </select></label><button onClick={() => void supabase?.auth.signOut()}>Sign out</button></div>
       {errorMessage && <p role="alert">{errorMessage}</p>}
       {view === "journeys" && <>

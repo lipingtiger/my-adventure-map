@@ -9,7 +9,7 @@ export type UploadedVideo = {
   caption: string | null;
   createdAt: string;
   id: string;
-  journeyId: string;
+  journeyId: string | null;
   stopId: string | null;
   takenAt: string | null;
   thumbnailUrl: string | null;
@@ -21,7 +21,7 @@ type UploadedVideoRow = {
   caption: string | null;
   created_at: string;
   id: string;
-  journey_id: string;
+  journey_id: string | null;
   stop_id: string | null;
   taken_at: string | null;
   thumbnail_url: string | null;
@@ -58,7 +58,10 @@ async function fetchUploadedVideos(journeyId: string) {
       .order("created_at", { ascending: false })
       .order("id")
       .range(offset, offset + UPLOADED_VIDEOS_PAGE_SIZE - 1);
-    query = journeyId === "__library__" ? query.is("journey_id", null) : query.eq("journey_id", journeyId);
+    if (journeyId === "__highlights__" || journeyId === "__unlocated__") {
+      query = query.is("journey_id", null);
+      query = journeyId === "__highlights__" ? query.not("latitude", "is", null).not("longitude", "is", null) : query.is("latitude", null);
+    } else query = query.eq("journey_id", journeyId);
     const { data, error } = await query;
 
     if (error) {
@@ -125,7 +128,7 @@ export function useUploadedVideos(journeyId: string) {
         "postgres_changes",
         {
           event: "*",
-          filter: `journey_id=eq.${journeyId}`,
+          ...(journeyId.startsWith("__") ? {} : { filter: `journey_id=eq.${journeyId}` }),
           schema: "public",
           table: "journey_video_links",
         },

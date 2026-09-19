@@ -13,6 +13,6 @@ export async function adminRequest(action: string, token: string, body: unknown)
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Request failed.");
-  if (action !== "admin-session") window.dispatchEvent(new Event("map-data-changed"));
+  if (!["admin-session", "library-cleanup-status"].includes(action)) window.dispatchEvent(new Event("map-data-changed"));
   return data;
 }

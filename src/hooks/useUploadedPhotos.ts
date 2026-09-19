@@ -8,7 +8,7 @@ export type UploadedPhoto = {
   caption: string | null;
   createdAt: string;
   id: string;
-  journeyId: string;
+  journeyId: string | null;
   publicUrl: string;
   stopId: string | null;
   takenAt: string | null;
@@ -19,7 +19,7 @@ type UploadedPhotoRow = {
   caption: string | null;
   created_at: string;
   id: string;
-  journey_id: string;
+  journey_id: string | null;
   public_url: string;
   stop_id: string | null;
   taken_at: string | null;
@@ -54,7 +54,10 @@ async function fetchUploadedPhotos(journeyId: string) {
       .order("created_at", { ascending: false })
       .order("id")
       .range(offset, offset + UPLOADED_PHOTOS_PAGE_SIZE - 1);
-    query = journeyId === "__library__" ? query.is("journey_id", null) : query.eq("journey_id", journeyId);
+    if (journeyId === "__highlights__" || journeyId === "__unlocated__") {
+      query = query.is("journey_id", null);
+      query = journeyId === "__highlights__" ? query.not("latitude", "is", null).not("longitude", "is", null) : query.is("latitude", null);
+    } else query = query.eq("journey_id", journeyId);
     const { data, error } = await query;
 
     if (error) {
@@ -121,7 +124,7 @@ export function useUploadedPhotos(journeyId: string) {
         "postgres_changes",
         {
           event: "*",
-          filter: `journey_id=eq.${journeyId}`,
+          ...(journeyId.startsWith("__") ? {} : { filter: `journey_id=eq.${journeyId}` }),
           schema: "public",
           table: "journey_photos",
         },
